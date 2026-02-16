@@ -44,6 +44,22 @@ config AKIRA_WASM_RUNTIME
       particular Zephyr libc choice; ensure sufficient heap is available for
       WAMRs global heap if using PSRAM or builtin heap.
 
+config WAMR_AOT_SUPPORT
+    bool "Enable WASM Ahead-of-Time (AOT) compilation support"
+    default y if SOC_SERIES_ESP32S3 || BOARD_NATIVE_SIM
+    default n
+    depends on AKIRA_WASM_RUNTIME
+    help
+      Enable support for loading AOT-compiled WASM modules (.aot files).
+      AOT modules provide faster execution but require LLVM-based toolchain
+      for compilation. Adds approximately 40KB to firmware size.
+      
+      Disable this to save memory if you only need interpreter mode (.wasm).
+      
+      Recommended:
+      - Enable for ESP32-S3 (XTENSA) and native_sim (powerful targets)
+      - Disable for ARM Cortex-M targets (limited resources)
+
 config AKIRA_RUNTIME_CUSTOM
     bool "Enable Akira unified custom runtime (Minimalist)"
     default y
@@ -278,6 +294,17 @@ config AKIRA_BT_SHELL
       from the device to a connected phone/tablet via BLE notifications.
       The companion app can subscribe to receive commands.
       Service UUID: d5b1b7e2-7f5a-4eef-8fd0-1a2b3c4d5e71
+
+config BT_RECONNECT_DELAY_MS
+    int "Bluetooth reconnect delay (ms)"
+    default 500
+    range 0 5000
+    depends on BT
+    help
+      Delay before restarting advertising after disconnection.
+      This gives the phone time to clean up the previous connection
+      before attempting to reconnect. Set to 0 to disable delay.
+      Recommended: 500ms for iOS/Android compatibility.
 
 config AKIRA_USB_HID
     bool "Enable USB HID"

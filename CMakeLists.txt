@@ -69,12 +69,13 @@ if(CONFIG_AKIRA_WASM_RUNTIME)
     endif()
 
     set(WAMR_BUILD_INTERP 1)
-    # Disable AOT for embedded MCU targets (Thumb/ARM) where the host-side AOT toolchain
-    # or LLVM cross-backend may not be available. Enable AOT for host builds.
-    if(DEFINED WAMR_BUILD_TARGET AND (WAMR_BUILD_TARGET MATCHES "^THUMB" OR WAMR_BUILD_TARGET MATCHES "^ARM"))
-        set(WAMR_BUILD_AOT 0)
-    else()
+    # Check user configuration for AOT support
+    if(CONFIG_WAMR_AOT_SUPPORT)
         set(WAMR_BUILD_AOT 1)
+        message(STATUS "WAMR AOT support: ENABLED (via CONFIG_WAMR_AOT_SUPPORT)")
+    else()
+        set(WAMR_BUILD_AOT 0)
+        message(STATUS "WAMR AOT support: DISABLED (via CONFIG_WAMR_AOT_SUPPORT)")
     endif()
     set(WAMR_BUILD_LIBC_BUILTIN 1)
 

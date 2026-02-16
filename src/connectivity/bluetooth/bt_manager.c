@@ -42,6 +42,7 @@ static struct
 
 #if BT_AVAILABLE
     struct bt_conn *current_conn;
+    struct k_work_delayable reconnect_work;
 #endif
 
     bt_event_callback_t event_cb;
@@ -63,6 +64,22 @@ static void notify_event(bt_event_t event, void *data)
 }
 
 #if BT_AVAILABLE
+
+/**
+ * @brief Delayed work handler for reconnect advertising
+ * 
+ * This work item restarts advertising after a configurable delay,
+ * giving the phone time to clean up the previous connection.
+ */
+static void reconnect_work_handler(struct k_work *work)
+{
+    LOG_INF("Restarting advertising after disconnect delay");
+    
+    if (bt_mgr.config.auto_advertise && bt_mgr.state == BT_STATE_READY)
+    {
+        bt_manager_start_advertising();
+    }
+}
 
 static void connected_cb(struct bt_conn *conn, uint8_t err)
 {
@@ -90,6 +107,7 @@ static void disconnected_cb(struct bt_conn *conn, uint8_t reason)
     bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
     LOG_INF("Disconnected: %s (reason 0x%02x)", addr, reason);
 
+    /* Clean up connection reference */
     if (bt_mgr.current_conn)
     {
         bt_conn_unref(bt_mgr.current_conn);
@@ -101,13 +119,31 @@ static void disconnected_cb(struct bt_conn *conn, uint8_t reason)
 
     notify_event(BT_EVENT_DISCONNECTED, NULL);
 
-    /* Auto-restart advertising if configured */
+    /* Cancel any pending reconnect work */
+    k_work_cancel_delayable(&bt_mgr.reconnect_work);
+
+    /* Restart advertising with configurable delay to allow phone cleanup */
     if (bt_mgr.config.auto_advertise)
     {
+#ifdef CONFIG_BT_RECONNECT_DELAY_MS
+        if (CONFIG_BT_RECONNECT_DELAY_MS > 0)
+        {
+            LOG_INF("Scheduling advertising restart in %d ms", CONFIG_BT_RECONNECT_DELAY_MS);
+            k_work_schedule(&bt_mgr.reconnect_work, K_MSEC(CONFIG_BT_RECONNECT_DELAY_MS));
+        }
+        else
+        {
+            /* No delay - start advertising immediately */
+            bt_manager_start_advertising();
+        }
+#else
+        /* No delay configured - start advertising immediately */
         bt_manager_start_advertising();
+#endif
     }
 
 #if defined(CONFIG_AKIRA_BT_ECHO)
+    /* Reinitialize echo service for next connection */
     bt_echo_init();
 #endif
 }
@@ -187,6 +223,9 @@ int bt_manager_init(const bt_config_t *config)
     bt_mgr.state = BT_STATE_INITIALIZING;
 
 #if BT_AVAILABLE
+    /* Initialize delayed work for reconnection */
+    k_work_init_delayable(&bt_mgr.reconnect_work, reconnect_work_handler);
+    
     int err = bt_enable(NULL);
     if (err)
     {

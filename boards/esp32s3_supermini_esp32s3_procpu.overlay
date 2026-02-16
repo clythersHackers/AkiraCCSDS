@@ -76,9 +76,9 @@
             reg = <0x00256000 DT_SIZE_K(32)>;
         };
 
-        lfs1_partition: partition@25F000 {
+        lfs1_partition: partition@25E000 {
             label = "akira_storage";
-            reg = <0x0025F000 DT_SIZE_K(256)>;
+            reg = <0x0025E000 DT_SIZE_K(256)>;
         };
     };
 };

@@ -255,6 +255,13 @@ static enum ota_result do_start_update(uint32_t expected_size)
         return OTA_ERROR_FLASH_OPEN_FAILED;
     }
 
+    /* Log partition boundaries for verification */
+    LOG_INF("OTA Secondary slot: offset=0x%08x size=0x%08x (%u KB)",
+            secondary_fa->fa_off,
+            secondary_fa->fa_size,
+            secondary_fa->fa_size / 1024);
+    LOG_INF("Note: Storage partition (LittleFS) is separate and NOT erased");
+
     update_progress(OTA_STATE_RECEIVING, "Erasing flash...");
     LOG_INF("OTA: Erasing flash... (0%%)");
 
@@ -639,19 +646,45 @@ void ota_reboot_to_apply_update(uint32_t delay_ms)
     sys_reboot(SYS_REBOOT_WARM);
 }
 
-/* Simplified shell commands */
+/* Enhanced shell commands */
 static int cmd_ota_status(const struct shell *sh, size_t argc, char **argv)
 {
+    ARG_UNUSED(argc);
+    ARG_UNUSED(argv);
+    
     const struct ota_progress *p = ota_get_progress();
-    shell_print(sh, "State: %s (%d%%) - %s",
-                ota_state_to_string(p->state), p->percentage, p->status_message);
+    
+    shell_print(sh, "\n=== OTA Status ===");
+    shell_print(sh, "State: %s", ota_state_to_string(p->state));
+    shell_print(sh, "Progress: %d%%", p->percentage);
+    
+    if (p->total_size > 0) {
+        shell_print(sh, "Size: %zu / %zu bytes (%.1f MB)",
+                    p->bytes_written, p->total_size,
+                    (double)p->total_size / (1024.0 * 1024.0));
+    }
+    
+    if (p->state == OTA_STATE_ERROR) {
+        shell_print(sh, "Last Error: %s", ota_result_to_string(p->last_error));
+    }
+    
+    if (strlen(p->status_message) > 0) {
+        shell_print(sh, "Status: %s", p->status_message);
+    }
+    
+    shell_print(sh, "\nNote: LittleFS storage is separate from firmware slots");
+    shell_print(sh, "      and NOT erased during OTA updates");
+    
     return 0;
 }
 
 static int cmd_ota_confirm(const struct shell *sh, size_t argc, char **argv)
 {
+    ARG_UNUSED(argc);
+    ARG_UNUSED(argv);
+    
     enum ota_result result = ota_confirm_firmware();
-    shell_print(sh, result == OTA_OK ? "Confirmed" : "Failed: %s",
+    shell_print(sh, result == OTA_OK ? "Firmware confirmed" : "Failed: %s",
                 ota_result_to_string(result));
     return 0;
 }

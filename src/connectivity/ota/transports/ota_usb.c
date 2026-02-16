@@ -10,6 +10,7 @@
 #include "../../connectivity/usb/usb_manager.h"
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/sys/crc.h>
 #include <string.h>
 
 #if defined(CONFIG_USB_DEVICE_STACK)
@@ -25,6 +26,8 @@ LOG_MODULE_REGISTER(ota_usb, CONFIG_AKIRA_LOG_LEVEL);
 /* Internal State                                                            */
 /*===========================================================================*/
 
+#define USB_OTA_TIMEOUT_MS 30000  /* 30 second timeout per operation */
+
 static struct
 {
     bool initialized;
@@ -32,6 +35,8 @@ static struct
     ota_transport_state_t state;
     size_t bytes_received;
     size_t total_size;
+    uint32_t calculated_crc;  /* CRC32 calculated during transfer */
+    int64_t last_activity_ms; /* Last data chunk timestamp */
 } usb_ota;
 
 /*===========================================================================*/
@@ -73,6 +78,15 @@ static int usb_handle_start_cmd(const uint8_t *data, size_t len)
     
     LOG_INF("USB OTA START: size=%u bytes", size);
     
+    /* Validate chunk size */
+    if (size == 0 || size > (4 * 1024 * 1024)) {  /* Max 4MB */
+        LOG_ERR("Invalid firmware size: %u", size);
+        usb_ota.state = OTA_TRANSPORT_ERROR;
+        uint8_t response = USB_OTA_RESP_ERROR;
+        usb_manager_send(&response, 1);
+        return -EINVAL;
+    }
+    
     /* Start OTA update */
     int ret = ota_start_update(size, OTA_SOURCE_USB);
     if (ret < 0) {
@@ -84,11 +98,14 @@ static int usb_handle_start_cmd(const uint8_t *data, size_t len)
     usb_ota.state = OTA_TRANSPORT_RECEIVING;
     usb_ota.total_size = size;
     usb_ota.bytes_received = 0;
+    usb_ota.calculated_crc = 0;  /* Initialize CRC */
+    usb_ota.last_activity_ms = k_uptime_get();
     
     /* Send OK response */
     uint8_t response = USB_OTA_RESP_OK;
     usb_manager_send(&response, 1);
     
+    LOG_INF("USB OTA transfer started, expecting CRC at end");
     return 0;
 }
 
@@ -105,8 +122,29 @@ static int usb_handle_data_cmd(const uint8_t *data, size_t len)
         return -EINVAL;
     }
     
+    /* Check for timeout */
+    int64_t now = k_uptime_get();
+    if ((now - usb_ota.last_activity_ms) > USB_OTA_TIMEOUT_MS) {
+        LOG_ERR("USB OTA timeout - no data for %lld ms", now - usb_ota.last_activity_ms);
+        usb_ota.state = OTA_TRANSPORT_ERROR;
+        ota_abort_update();
+        uint8_t response = USB_OTA_RESP_ERROR;
+        usb_manager_send(&response, 1);
+        return -ETIMEDOUT;
+    }
+    
+    /* Validate chunk size */
+    size_t data_len = len - 1;  /* Exclude command byte */
+    if (data_len == 0 || data_len > USB_OTA_BUFFER_SIZE) {
+        LOG_ERR("Invalid data chunk size: %zu (max %d)", data_len, USB_OTA_BUFFER_SIZE);
+        usb_ota.state = OTA_TRANSPORT_ERROR;
+        uint8_t response = USB_OTA_RESP_ERROR;
+        usb_manager_send(&response, 1);
+        return -EINVAL;
+    }
+    
     /* Skip command byte, write firmware data */
-    int ret = ota_write_data(data + 1, len - 1);
+    int ret = ota_write_data(data + 1, data_len);
     if (ret < 0) {
         LOG_ERR("Failed to write OTA data: %d", ret);
         usb_ota.state = OTA_TRANSPORT_ERROR;
@@ -115,12 +153,16 @@ static int usb_handle_data_cmd(const uint8_t *data, size_t len)
         return ret;
     }
     
-    usb_ota.bytes_received += (len - 1);
+    /* Update CRC32 with new data */
+    usb_ota.calculated_crc = crc32_ieee_update(usb_ota.calculated_crc, data + 1, data_len);
+    
+    usb_ota.bytes_received += data_len;
+    usb_ota.last_activity_ms = now;  /* Update activity timestamp */
     
     /* Log progress every 50KB */
     if ((usb_ota.bytes_received % 51200) == 0) {
         uint32_t progress = (usb_ota.bytes_received * 100) / usb_ota.total_size;
-        LOG_INF("USB OTA progress: %u%%", progress);
+        LOG_INF("USB OTA progress: %u%% (CRC: 0x%08x)", progress, usb_ota.calculated_crc);
     }
     
     /* Send OK response */
@@ -143,12 +185,30 @@ static int usb_handle_end_cmd(const uint8_t *data, size_t len)
         return -EINVAL;
     }
     
-    /* Extract expected CRC (if provided) */
-    uint32_t expected_crc = 0;
-    if (len >= 5) {
-        expected_crc = data[1] | (data[2] << 8) | 
-                      (data[3] << 16) | (data[4] << 24);
-        LOG_INF("USB OTA END: CRC=0x%08x", expected_crc);
+    /* Extract and validate expected CRC */
+    if (len < 5) {
+        LOG_WRN("No CRC provided in END command");
+    } else {
+        uint32_t expected_crc = data[1] | (data[2] << 8) | 
+                               (data[3] << 16) | (data[4] << 24);
+        
+        /* Finalize CRC calculation */
+        uint32_t final_crc = crc32_ieee(usb_ota.calculated_crc);
+        
+        LOG_INF("USB OTA END: Expected CRC=0x%08x, Calculated CRC=0x%08x", 
+                expected_crc, final_crc);
+        
+        /* Validate CRC match */
+        if (expected_crc != final_crc) {
+            LOG_ERR("CRC mismatch! Firmware corrupted during transfer");
+            usb_ota.state = OTA_TRANSPORT_ERROR;
+            ota_abort_update();
+            uint8_t response = USB_OTA_RESP_ERROR;
+            usb_manager_send(&response, 1);
+            return -EIO;
+        }
+        
+        LOG_INF("CRC validation passed!");
     }
     
     /* Finalize update */
@@ -162,7 +222,7 @@ static int usb_handle_end_cmd(const uint8_t *data, size_t len)
     }
     
     usb_ota.state = OTA_TRANSPORT_COMPLETE;
-    LOG_INF("USB OTA successful! %u bytes received", usb_ota.bytes_received);
+    LOG_INF("USB OTA successful! %u bytes received, CRC verified", usb_ota.bytes_received);
     
     /* Send OK response */
     uint8_t response = USB_OTA_RESP_OK;
@@ -176,10 +236,15 @@ static int usb_handle_end_cmd(const uint8_t *data, size_t len)
  */
 static int usb_handle_abort_cmd(void)
 {
-    LOG_INF("USB OTA ABORT");
+    LOG_INF("USB OTA ABORT requested");
     ota_abort_update();
+    
+    /* Reset state */
     usb_ota.state = OTA_TRANSPORT_READY;
     usb_ota.bytes_received = 0;
+    usb_ota.total_size = 0;
+    usb_ota.calculated_crc = 0;
+    usb_ota.last_activity_ms = 0;
     
     uint8_t response = USB_OTA_RESP_OK;
     usb_manager_send(&response, 1);

@@ -8,6 +8,8 @@
 
 #include <zephyr/shell/shell.h>
 #include <zephyr/kernel.h>
+#include <zephyr/fs/fs.h>
+#include <zephyr/storage/flash_map.h>
 #include "akira.h"
 #include "kernel/psram.h"
 
@@ -212,6 +214,54 @@ static int cmd_service_stop(const struct shell *sh, size_t argc, char **argv)
     return 0;
 }
 
+static int cmd_akira_storage(const struct shell *sh, size_t argc, char **argv)
+{
+    ARG_UNUSED(argc);
+    ARG_UNUSED(argv);
+
+    shell_print(sh, "\n=== Storage Status ===");
+    
+    /* Show LittleFS mount status */
+    struct fs_statvfs sbuf;
+    int ret = fs_statvfs("/lfs", &sbuf);
+    
+    if (ret == 0) {
+        size_t total_kb = (sbuf.f_bsize * sbuf.f_blocks) / 1024;
+        size_t free_kb = (sbuf.f_bsize * sbuf.f_bfree) / 1024;
+        size_t used_kb = total_kb - free_kb;
+        
+        shell_print(sh, "LittleFS Mount: /lfs");
+        shell_print(sh, "Total:  %zu KB", total_kb);
+        shell_print(sh, "Used:   %zu KB (%.1f%%)", used_kb, 
+                   total_kb > 0 ? (double)used_kb * 100.0 / total_kb : 0.0);
+        shell_print(sh, "Free:   %zu KB", free_kb);
+        shell_print(sh, "Mounted: Yes");
+    } else {
+        shell_print(sh, "LittleFS: Not mounted or unavailable (err: %d)", ret);
+    }
+    
+    /* Show flash partition info */
+    shell_print(sh, "\n=== Flash Partitions ===");
+    
+#ifdef FIXED_PARTITION_EXISTS(lfs1_partition)
+    const struct flash_area *fa;
+    ret = flash_area_open(FIXED_PARTITION_ID(lfs1_partition), &fa);
+    if (ret == 0) {
+        shell_print(sh, "LittleFS partition:");
+        shell_print(sh, "  Offset: 0x%08x", fa->fa_off);
+        shell_print(sh, "  Size:   %zu KB (0x%x bytes)", 
+                   fa->fa_size / 1024, fa->fa_size);
+        shell_print(sh, "  Note: Separate from firmware slots");
+        shell_print(sh, "        NOT erased during OTA updates");
+        flash_area_close(fa);
+    }
+#else
+    shell_print(sh, "LittleFS partition: Not configured");
+#endif
+    
+    return 0;
+}
+
 /*===========================================================================*/
 /* Shell Command Registration                                                */
 /*===========================================================================*/
@@ -229,6 +279,7 @@ SHELL_STATIC_SUBCMD_SET_CREATE(sub_akira,
                                SHELL_CMD(uptime, NULL, "Show system uptime", cmd_akira_uptime),
                                SHELL_CMD(memory, NULL, "Show memory status", cmd_akira_memory),
                                SHELL_CMD(psram, NULL, "Show PSRAM status", cmd_akira_psram),
+                               SHELL_CMD(storage, NULL, "Show storage/flash status", cmd_akira_storage),
                                SHELL_CMD(services, NULL, "Show services", cmd_akira_services),
                                SHELL_CMD(processes, NULL, "Show processes", cmd_akira_processes),
                                SHELL_CMD(timers, NULL, "Show timers", cmd_akira_timers),

@@ -74,7 +74,7 @@
 
         lfs1_partition: partition@25E000 {
 			label = "storage";
-			reg = <0x0025F000 DT_SIZE_K(512)>;
+			reg = <0x0025E000 DT_SIZE_K(512)>;
 		};
     };
 };
