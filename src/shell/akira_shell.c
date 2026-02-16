@@ -42,7 +42,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <inttypes.h>
+#if defined(CONFIG_FAT_FILESYSTEM_ELM)
 #include <ff.h>
+#endif
 #include "akira.h"
 #include "../storage/fs_manager.h"
 #ifdef CONFIG_AKIRA_APP_MANAGER
@@ -1722,6 +1724,7 @@ static int cmd_hwtest(const struct shell *sh, size_t argc, char **argv)
 
     /* Test 3: SD Card */
     shell_print(sh, "Test 3: SD Card");
+#if defined(CONFIG_FAT_FILESYSTEM_ELM)
     FATFS fat_fs;
     FIL file;
     FRESULT res;
@@ -1759,6 +1762,9 @@ static int cmd_hwtest(const struct shell *sh, size_t argc, char **argv)
         }
         f_unmount("/SD:");
     }
+#else
+    shell_print(sh, "  - SD card test skipped (FAT filesystem disabled)");
+#endif
 
     shell_print(sh, "\n===========================================");
     shell_print(sh, "Hardware test complete!");

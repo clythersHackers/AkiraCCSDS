@@ -1,128 +1,39 @@
-// Akira Console (ESP32-S3 DevKitM ProCPU) Board Overlay
 // Include required headers
 #include <zephyr/dt-bindings/gpio/gpio.h>
 #include <zephyr/dt-bindings/spi/spi.h>
 
 // ============================================================================
-// PSRAM Configuration - ESP32-S3 N4R2 (2MB OPI PSRAM)
+// PSRAM Configuration - ESP32-S3 N16R8 (8MB OPI PSRAM)
 // ============================================================================
-// The ESP32-S3 MINI N4R2 module has 2MB external OPI PSRAM
+// The ESP32-S3 N16R8 module has 8MB external OPI PSRAM
+// This enables the psram0 node with the correct size for memory allocation
 &psram0 {
-    size = <DT_SIZE_M(2)>;
+    size = <DT_SIZE_M(8)>;
     status = "okay";
 };
 
-// ============================================================================
-// Console Configuration
-// ============================================================================
-/ {
-    chosen {
-        // Console is defined in main DTS as CDC ACM over USB
-        // zephyr,console = &cdc_acm_uart0;
-        // zephyr,shell-uart = &cdc_acm_uart0;
-        zephyr,bt-hci = &esp32_bt_hci;
-    };
-
-    // ========================================================================
-    // Filesystem Configuration
-    // ========================================================================
-    fstab {
-        compatible = "zephyr,fstab";
-
-        lfs1: lfs1 {
-            compatible = "zephyr,fstab,littlefs";
-            read-size = <1>;
-            prog-size = <16>;
-            cache-size = <256>;
-            lookahead-size = <32>;
-            block-cycles = <512>;
-            partition = <&lfs1_partition>;
-            mount-point = "/lfs";
-        };
-    };
-};
-
-// ============================================================================
-// Flash Partitions
-// ============================================================================
-&flash0 {
-    partitions {
-        compatible = "fixed-partitions";
-        #address-cells = <1>;
-        #size-cells = <1>;
-
-        // NVS partition for AkiraOS settings
-        akira_settings_nvs_partition: partition@256000 {
-            label = "akira_settings_nvs";
-            reg = <0x00256000 DT_SIZE_K(32)>;
-        };
-
-        // LittleFS partition for general storage
-        lfs1_partition: partition@25E000 {
-            label = "lfs_storage";
-            reg = <0x0025E000 DT_SIZE_K(512)>;
-        };
-    };
-};
-
-// ============================================================================
-// GPIO Configuration
-// ============================================================================
-&gpio0 {
+// WiFi configuration
+&wifi
+{
     status = "okay";
+    // WiFi credentials will be managed by settings module
 };
 
-// ============================================================================
-// WiFi Configuration
-// ============================================================================
-&wifi {
-    status = "okay";
-};
-
-// ============================================================================
-// Bluetooth Configuration
-// ============================================================================
-&esp32_bt_hci {
-    status = "okay";
-};
-
-// ============================================================================
-// UART Configuration
-// ============================================================================
-&uart0 {
+// UART configuration for shell and logging
+&uart0
+{
     status = "okay";
     current-speed = <115200>;
 };
 
-// ============================================================================
-// I2C Configuration
-// ============================================================================
-&i2c0 {
+// I2C configuration (for future expansion)
+&i2c0
+{
     status = "okay";
     clock-frequency = <I2C_BITRATE_STANDARD>;
 };
 
-// ============================================================================
-// SPI Configuration
-// ============================================================================
-&spi2 {
-    status = "okay";
-    #address-cells = <1>;
-    #size-cells = <0>;
-    cs-gpios = <&gpio0 10 GPIO_ACTIVE_LOW>; // Manual CS control for TFT
-};
-
-// ============================================================================
-// USB OTG / CDC ACM for Console
-// ============================================================================
-// Already configured in main DTS file
-// zephyr_udc0: &usb_otg {
-//     status = "okay";
-//     cdc_acm_uart0: cdc_acm_uart0 {
-//         compatible = "zephyr,cdc-acm-uart";
-//     };
-// };
-
+// USB Device Controller configuration
 &zephyr_udc0 {
     status = "okay";
     
@@ -136,9 +47,34 @@
     };
 };
 
-// ============================================================================
-// TRNG (True Random Number Generator)
-// ============================================================================
-&trng0 {
-    status = "okay";
+/ {
+    fstab {
+		compatible = "zephyr,fstab";
+
+		lfs1: lfs1 {
+			compatible = "zephyr,fstab,littlefs";
+			read-size = <1>;
+			prog-size = <16>;
+			cache-size = <256>;
+			lookahead-size = <32>;
+			block-cycles = <512>;
+			partition = <&lfs1_partition>;
+			mount-point = "/lfs";
+		};
+	};
+};
+
+// Flash memory partitions - add custom partitions to existing partition table
+&flash0 {
+    partitions {
+        akira_settings_nvs_partition: partition@256000 {
+            label = "akira_settings_nvs";
+            reg = <0x00256000 DT_SIZE_K(32)>;
+        };
+
+        lfs1_partition: partition@25E000 {
+			label = "storage";
+			reg = <0x0025F000 DT_SIZE_K(512)>;
+		};
+    };
 };

@@ -1,19 +1,22 @@
-identifier: akiraconsole
-name: Akira Console
+identifier: esp32s3_devkitm/esp32s3/procpu
+name: ESP32-S3 DevKitM PROCPU
 type: mcu
 arch: xtensa
 toolchain:
   - zephyr
-ram: 512
-flash: 4096
 supported:
   - gpio
-  - i2c
-  - spi
   - uart
-  - usb_device
-  - wifi
-  - ble
-testing:
-  default: true
-vendor: akira
+  - i2c
+  - i2s
+  - spi
+  - can
+  - counter
+  - watchdog
+  - entropy
+  - pwm
+  - dma
+  - input
+  - video
+  - crypto
+vendor: penengineering

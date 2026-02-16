@@ -1,0 +1,6 @@
+board:
+  name: esp32s3_super_mini
+  full_name: ESP32-S3 Super Mini (4MB Flash, No PSRAM)
+  vendor: generic
+  socs:
+  - name: esp32s3
