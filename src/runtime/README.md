@@ -1,5 +1,11 @@
 # AkiraRuntime
 
+<div align="center">
+
+<img src="../../assets/logo.png" alt="AkiraOS Logo" width="200"/>
+
+</div>
+
 **Custom WebAssembly runtime for embedded systems.**
 
 AkiraRuntime is a purpose-built WASM execution environment designed for resource-constrained devices. While it leverages WAMR as the bytecode interpreter/AOT compiler, the runtime architecture—including application management, security model, native API bridge, and memory allocation—is custom-designed for AkiraOS.

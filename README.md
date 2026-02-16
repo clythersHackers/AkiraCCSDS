@@ -2,6 +2,8 @@
 
 <div align="center">
 
+<img src="assets/logo.png" alt="AkiraOS Logo" width="300"/>
+
 **High-Performance WebAssembly OS for Embedded Systems**
 
 [![Version](https://img.shields.io/badge/version-1.4.7-blue.svg)](VERSION)

@@ -1,5 +1,11 @@
 # Connectivity Layer
 
+<div align="center">
+
+<img src="../../assets/logo.png" alt="AkiraOS Logo" width="200"/>
+
+</div>
+
 Modular connectivity subsystem for WiFi, Bluetooth, USB, and OTA operations.
 
 ## Architecture

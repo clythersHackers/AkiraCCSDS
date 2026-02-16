@@ -2,6 +2,8 @@
 
 <div align="center">
 
+<img src="assets/logo.png" alt="AkiraOS Logo" width="250"/>
+
 **Get AkiraOS running in under 15 minutes**
 
 *Complete setup guide from zero to flashing your first firmware*
