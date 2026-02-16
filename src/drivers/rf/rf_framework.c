@@ -166,3 +166,6 @@ int rf_framework_get_driver_count(void)
 
     return count;
 }
+
+/* Auto-initialize RF framework at boot (before drivers register) */
+SYS_INIT(rf_framework_init, POST_KERNEL, CONFIG_KERNEL_INIT_PRIORITY_DEFAULT);

@@ -338,13 +338,6 @@ static int lr1121_init(void)
     g_lr1121.current_mode = RF_MODE_STANDBY;
     g_lr1121.initialized = true;
 
-    /* Register with RF framework */
-    extern const struct akira_rf_driver lr1121_driver;
-    ret = rf_framework_register_driver(&lr1121_driver);
-    if (ret < 0 && ret != -EEXIST) {
-        LOG_WRN("Failed to register with RF framework: %d", ret);
-    }
-
     LOG_INF("LR1121 initialized successfully");
     return 0;
 }
@@ -638,3 +631,20 @@ const struct akira_rf_driver *lr1121_get_driver(void)
 {
     return &lr1121_driver;
 }
+
+/**
+ * @brief Auto-register LR1121 driver at boot
+ */
+static int lr1121_auto_register(void)
+{
+    int ret = rf_framework_register_driver(&lr1121_driver);
+    if (ret < 0 && ret != -EEXIST) {
+        LOG_ERR("Failed to auto-register LR1121 driver: %d", ret);
+        return ret;
+    }
+    LOG_INF("LR1121 driver registered with RF framework");
+    return 0;
+}
+
+/* Register driver during POST_KERNEL initialization */
+SYS_INIT(lr1121_auto_register, APPLICATION, CONFIG_APPLICATION_INIT_PRIORITY);
