@@ -134,9 +134,13 @@ target_sources(app PRIVATE
     src/drivers/driver_registry.c
     src/shell/akira_shell.c
     src/shell/shell_display.c
-    src/shell/shell_display_cmds.c
     src/settings/settings.c
 )
+
+# Display shell commands (only if display is available)
+if(CONFIG_DISPLAY)
+    target_sources(app PRIVATE src/shell/shell_display_cmds.c)
+endif()
 
 # ===== v2.0 Modular Architecture Files =====
 

@@ -26,22 +26,39 @@ static int akira_gpio_init(void)
         return 0;
     }
     
+#if defined(CONFIG_GPIO)
+#if DT_NODE_HAS_STATUS(DT_NODELABEL(gpio0), okay)
     gpio0_dev = DEVICE_DT_GET(DT_NODELABEL(gpio0));
     if (!device_is_ready(gpio0_dev)) {
         LOG_ERR("GPIO0 device not ready");
         gpio0_dev = NULL;
     }
+#else
+    gpio0_dev = NULL;
+    LOG_DBG("GPIO0 not defined in device tree");
+#endif
     
+#if DT_NODE_HAS_STATUS(DT_NODELABEL(gpio1), okay)
     gpio1_dev = DEVICE_DT_GET(DT_NODELABEL(gpio1));
     if (!device_is_ready(gpio1_dev)) {
         LOG_DBG("GPIO1 device not available (normal for some platforms)");
         gpio1_dev = NULL;
     }
+#else
+    gpio1_dev = NULL;
+    LOG_DBG("GPIO1 not defined in device tree");
+#endif
     
     if (!gpio0_dev && !gpio1_dev) {
         LOG_ERR("No GPIO devices available");
         return -ENODEV;
     }
+#else
+    gpio0_dev = NULL;
+    gpio1_dev = NULL;
+    LOG_WRN("GPIO subsystem not enabled (CONFIG_GPIO=n)");
+    return -ENOTSUP;
+#endif
     
     initialized = true;
     LOG_INF("GPIO API initialized");

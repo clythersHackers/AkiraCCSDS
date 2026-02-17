@@ -92,6 +92,7 @@ AkiraOS is a production-ready embedded operating system that enables **secure, d
 - [AOT Compilation](architecture/aot-compilation.md) - Native code compilation for 10-50x performance
 - [Security Model](architecture/security.md) - Capability system
 - [Data Flow](architecture/data-flow.md) - End-to-end diagrams
+- [Advanced Connectivity](architecture/advanced-connectivity.md) - AkiraMesh Matter and Thread Integration
 
 ---
 
@@ -209,21 +210,6 @@ AkiraOS is licensed under the [GNU General Public License v3.0](../LICENSE).
 - WASM Micro Runtime (WAMR) 
 - MCUboot 
 - ESP-IDF 
-
----
-
-## 🗺️ Project Roadmap
-
-Current version: **v1.4.8 "GL1TCH"**
-
-**Planned Improvements:**
-- Transport interface for zero-copy networking
-- Chunked WASM loading (50% memory reduction)
-- Inline capability checks (40% faster)
-- Per-app memory quotas
-- AkiraMesh networking
-
-See [IMPLEMENTATION_TASKS.md](../IMPLEMENTATION_TASKS.md) for detailed roadmap.
 
 ---
 

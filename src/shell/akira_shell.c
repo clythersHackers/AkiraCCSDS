@@ -36,7 +36,9 @@
 #include <zephyr/sys/heap_listener.h>
 #include <zephyr/sys/mem_stats.h>
 #include <zephyr/net/net_if.h>
+#ifdef CONFIG_WIFI
 #include <zephyr/net/wifi_mgmt.h>
+#endif
 #include <zephyr/net/net_mgmt.h>
 #include <string.h>
 #include <stdio.h>
@@ -1430,7 +1432,7 @@ SHELL_STATIC_SUBCMD_SET_CREATE(bt_cmds,
 SHELL_CMD_REGISTER(bt, &bt_cmds, "Bluetooth commands", NULL);
 #endif /* CONFIG_BT */
 
-#ifdef CONFIG_NETWORKING
+#ifdef CONFIG_WIFI
 /* WiFi status command */
 static int cmd_wifi_status(const struct shell *sh, size_t argc, char **argv)
 {
@@ -1558,7 +1560,7 @@ static int cmd_wifi_scan(const struct shell *sh, size_t argc, char **argv)
     shell_print(sh, "Scan started. Results will appear in the logs.");
     return 0;
 }
-#endif /* CONFIG_NETWORKING */
+#endif /* CONFIG_WIFI */
 
 /* RAM Storage Shell Commands */
 static int cmd_ram_ls(const struct shell *sh, size_t argc, char **argv)
@@ -1748,7 +1750,7 @@ SHELL_STATIC_SUBCMD_SET_CREATE(ram_cmds,
 
 SHELL_CMD_REGISTER(ram, &ram_cmds, "RAM storage commands", NULL);
 
-#ifdef CONFIG_NETWORKING
+#ifdef CONFIG_WIFI
 SHELL_CMD_REGISTER(wifi_status, NULL, "Show WiFi connection status", cmd_wifi_status);
 SHELL_CMD_REGISTER(wifi_connect, NULL, "Connect to configured WiFi network", cmd_wifi_connect);
 SHELL_CMD_REGISTER(wifi_scan, NULL, "Scan for WiFi networks", cmd_wifi_scan);

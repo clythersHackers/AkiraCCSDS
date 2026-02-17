@@ -37,6 +37,9 @@
 #ifdef CONFIG_AKIRA_USB_HID
 #include <connectivity/usb/usb_hid.h>
 #endif
+#ifdef CONFIG_AKIRA_BT_SHELL
+#include <connectivity/bluetooth/bt_shell.h>
+#endif
 
 
 LOG_MODULE_REGISTER(akira_main, CONFIG_AKIRA_LOG_LEVEL);
