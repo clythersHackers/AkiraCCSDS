@@ -298,6 +298,134 @@ config AKIRA_BT_SHELL
 config BT_RECONNECT_DELAY_MS
     int "Bluetooth reconnect delay (ms)"
     default 500
+    depends on BT
+    help
+      Delay in milliseconds before attempting to reconnect after a BLE disconnect.
+
+endmenu
+
+# ===== Advanced Connectivity Layer =====
+
+menu "Advanced Connectivity"
+
+config AKIRA_RADIO_MANAGER
+    bool "Enable Radio Abstraction Layer"
+    default y
+    help
+      Enable hardware-agnostic Radio Abstraction Layer (RAL).
+      Provides unified interface for WiFi, BLE, and 802.15.4 radios,
+      enabling protocol stacks to work across all hardware platforms.
+
+config AKIRA_MATTER
+    bool "Enable Matter protocol support"
+    default n
+    depends on AKIRA_RADIO_MANAGER
+    help
+      Enable Matter (Connected Home over IP) protocol stack.
+      Requires ConnectedHomeOverIP module in west.yml.
+      Supports Matter-over-WiFi, Matter-over-Thread, and BLE commissioning.
+
+if AKIRA_MATTER
+
+config AKIRA_MATTER_VENDOR_ID
+    hex "Matter Vendor ID"
+    default 0xFFF1
+    help
+      CSA-assigned vendor ID (use test ID 0xFFF1 for development)
+
+config AKIRA_MATTER_PRODUCT_ID
+    hex "Matter Product ID"
+    default 0x8000
+    help
+      Product ID for this device
+
+config AKIRA_MATTER_DEVICE_TYPE
+    hex "Matter Device Type"
+    default 0x0100
+    help
+      Primary device type (0x0100 = On/Off Light)
+
+endif # AKIRA_MATTER
+
+config AKIRA_THREAD
+    bool "Enable Thread protocol support"
+    default n
+    depends on AKIRA_RADIO_MANAGER && NET_L2_IEEE802154
+    help
+      Enable OpenThread mesh networking stack.
+      Requires OpenThread module in west.yml and 802.15.4 radio hardware.
+      Supports Thread router, end device, and border router roles.
+
+if AKIRA_THREAD
+
+config AKIRA_THREAD_FTD
+    bool "Full Thread Device (FTD)"
+    default y
+    help
+      Enable Full Thread Device (router/leader capable).
+      Disable for Minimal Thread Device (MTD) - end device only.
+
+config AKIRA_THREAD_BORDER_ROUTER
+    bool "Enable Thread Border Router"
+    default n
+    depends on AKIRA_THREAD_FTD
+    help
+      Enable Thread Border Router functionality.
+      Provides gateway between Thread mesh and WiFi/Ethernet.
+
+endif # AKIRA_THREAD
+
+config AKIRA_MESH
+    bool "Enable AkiraMesh protocol"
+    default n
+    depends on AKIRA_RADIO_MANAGER
+    help
+      Enable AkiraMesh - custom lightweight mesh networking protocol.
+      Supports multi-transport (BLE Mesh, 802.15.4, ESP-NOW),
+      multi-hop routing, WASM app distribution, and state synchronization.
+
+if AKIRA_MESH
+
+config AKIRA_MESH_MAX_NODES
+    int "Maximum mesh nodes"
+    default 32
+    range 4 128
+    help
+      Maximum number of nodes in the mesh network
+
+config AKIRA_MESH_MAX_HOPS
+    int "Maximum hop count"
+    default 5
+    range 1 15
+    help
+      Maximum number of hops for mesh routing
+
+config AKIRA_MESH_TRANSPORT_BLE
+    bool "Enable BLE Mesh transport"
+    default y if BT
+    depends on BT
+    help
+      Enable BLE Mesh transport (standards-based, works on all platforms)
+
+config AKIRA_MESH_TRANSPORT_802154
+    bool "Enable 802.15.4 transport"
+    default y if NET_L2_IEEE802154
+    depends on NET_L2_IEEE802154
+    help
+      Enable custom protocol over 802.15.4 (higher throughput)
+
+config AKIRA_MESH_TRANSPORT_ESPNOW
+    bool "Enable ESP-NOW transport"
+    default n
+    depends on WIFI_ESP32
+    help
+      Enable ESP-NOW transport (ESP32 optimization)
+
+endif # AKIRA_MESH
+
+config BT_RECONNECT_DELAY_MS
+    int "Bluetooth reconnect delay (ms)"
+    default 500
     range 0 5000
     depends on BT
     help

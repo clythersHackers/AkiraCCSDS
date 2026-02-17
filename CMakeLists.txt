@@ -397,6 +397,55 @@ if(CONFIG_AKIRA_CLOUD_CLIENT)
     endif()
 endif()
 
+# ===== Advanced Connectivity Layer =====
+
+# Radio Abstraction Layer (RAL)
+if(CONFIG_AKIRA_RADIO_MANAGER)
+    target_sources(app PRIVATE
+        src/connectivity/radio/radio_manager.c
+    )
+    
+    # WiFi radio backend
+    if(CONFIG_WIFI)
+        target_sources(app PRIVATE src/connectivity/radio/radio_wifi.c)
+    endif()
+    
+    # BLE radio backend
+    if(CONFIG_BT)
+        target_sources(app PRIVATE src/connectivity/radio/radio_ble.c)
+    endif()
+    
+    # 802.15.4 radio backend
+    if(CONFIG_NET_L2_IEEE802154)
+        target_sources(app PRIVATE src/connectivity/radio/radio_802154.c)
+    endif()
+endif()
+
+# Matter protocol
+if(CONFIG_AKIRA_MATTER)
+    target_sources(app PRIVATE
+        src/connectivity/matter/matter_manager.c
+    )
+    # Note: Full Matter SDK integration requires adding CHIP module
+    # include(${ZEPHYR_CONNECTEDHOMEIP_MODULE_DIR}/config/zephyr/chip-module/CMakeLists.txt)
+endif()
+
+# Thread protocol
+if(CONFIG_AKIRA_THREAD)
+    target_sources(app PRIVATE
+        src/connectivity/thread/thread_manager.c
+    )
+    # Note: Full OpenThread integration requires adding OpenThread module
+    # The OpenThread CMake integration is handled via west.yml manifest
+endif()
+
+# AkiraMesh protocol
+if(CONFIG_AKIRA_MESH)
+    target_sources(app PRIVATE
+        src/connectivity/mesh/mesh_manager.c
+    )
+endif()
+
 # Services (Unified WASM runtime wrapper)
 # Using single unified runtime implementation in src/runtime
 # Runtime and native API registration happen in src/runtime/akira_runtime.c
@@ -423,6 +472,7 @@ endif()
 
 # Include directories
 target_include_directories(app PRIVATE
+    include/
     src/
     src/akira/
     src/api/

@@ -57,6 +57,18 @@
 #if defined(CONFIG_AKIRA_APP_SOURCE_USB)
 #include "../connectivity/storage/usb_storage.h"
 #endif
+#if defined(CONFIG_AKIRA_RADIO_MANAGER)
+#include "connectivity/radio_interface.h"
+#endif
+#if defined(CONFIG_AKIRA_MATTER)
+#include "connectivity/matter_manager.h"
+#endif
+#if defined(CONFIG_AKIRA_THREAD)
+#include "connectivity/thread_manager.h"
+#endif
+#if defined(CONFIG_AKIRA_MESH)
+#include "connectivity/akira_mesh.h"
+#endif
 
 LOG_MODULE_REGISTER(akira_shell, AKIRA_LOG_LEVEL);
 
@@ -1782,4 +1794,307 @@ SHELL_CMD_REGISTER(gpio, &gpio_cmds, "GPIO control commands", NULL);
 SHELL_CMD_REGISTER(debug, &debug_cmds, "Debug and diagnostic commands", NULL);
 #ifdef CONFIG_AKIRA_APP_MANAGER
 SHELL_CMD_REGISTER(app, &app_cmds, "App management commands", NULL);
+#endif
+
+/* ===== Radio Manager Commands ===== */
+#if defined(CONFIG_AKIRA_RADIO_MANAGER)
+static int cmd_radio_info(const struct shell *sh, size_t argc, char **argv)
+{
+    ARG_UNUSED(argc);
+    ARG_UNUSED(argv);
+    
+    radio_handle_t *radios[8];
+    int count = radio_manager_get_all(RADIO_TYPE_NONE, radios, 8);
+    
+    if (count < 0) {
+        shell_error(sh, "Failed to get radios: %d", count);
+        return count;
+    }
+    
+    shell_print(sh, "\n=== Available Radios ===");
+    for (int i = 0; i < count; i++) {
+        shell_print(sh, "%d: %s (%s) - State: %s", i, 
+                   radios[i]->name,
+                   radio_type_to_string(radios[i]->type),
+                   radio_state_to_string(radios[i]->state));
+        shell_print(sh, "   Capabilities: 0x%08x", radios[i]->capabilities);
+    }
+    shell_print(sh, "Total: %d radios", count);
+    return 0;
+}
+
+static int cmd_radio_stats(const struct shell *sh, size_t argc, char **argv)
+{
+    if (argc < 2) {
+        shell_error(sh, "Usage: radio stats <wifi|ble|802154>");
+        return -EINVAL;
+    }
+    
+    radio_type_t type;
+    if (strcmp(argv[1], "wifi") == 0) {
+        type = RADIO_TYPE_WIFI;
+    } else if (strcmp(argv[1], "ble") == 0) {
+        type = RADIO_TYPE_BLE;
+    } else if (strcmp(argv[1], "802154") == 0) {
+        type = RADIO_TYPE_802154;
+    } else {
+        shell_error(sh, "Unknown radio type: %s", argv[1]);
+        return -EINVAL;
+    }
+    
+    radio_handle_t *radio = radio_manager_get(type);
+    if (!radio) {
+        shell_error(sh, "Radio %s not available", argv[1]);
+        return -ENODEV;
+    }
+    
+    radio_stats_t stats;
+    int ret = radio_get_stats(radio, &stats);
+    if (ret) {
+        shell_error(sh, "Failed to get stats: %d", ret);
+        return ret;
+    }
+    
+    shell_print(sh, "\n=== %s Radio Statistics ===", radio->name);
+    shell_print(sh, "TX Packets: %llu", stats.tx_packets);
+    shell_print(sh, "RX Packets: %llu", stats.rx_packets);
+    shell_print(sh, "TX Bytes: %llu", stats.tx_bytes);
+    shell_print(sh, "RX Bytes: %llu", stats.rx_bytes);
+    shell_print(sh, "RSSI: %d dBm", stats.rssi);
+    shell_print(sh, "LQI: %u", stats.lqi);
+    return 0;
+}
+
+SHELL_STATIC_SUBCMD_SET_CREATE(radio_cmds,
+    SHELL_CMD(info, NULL, "Show available radios", cmd_radio_info),
+    SHELL_CMD(stats, NULL, "Show radio statistics <wifi|ble|802154>", cmd_radio_stats),
+    SHELL_SUBCMD_SET_END);
+SHELL_CMD_REGISTER(radio, &radio_cmds, "Radio abstraction layer commands", NULL);
+#endif
+
+/* ===== Matter Commands ===== */
+#if defined(CONFIG_AKIRA_MATTER)
+static int cmd_matter_info(const struct shell *sh, size_t argc, char **argv)
+{
+    ARG_UNUSED(argc);
+    ARG_UNUSED(argv);
+    
+    matter_stats_t stats;
+    int ret = matter_get_stats(&stats);
+    if (ret) {
+        shell_error(sh, "Failed to get Matter stats: %d", ret);
+        return ret;
+    }
+    
+    shell_print(sh, "\n=== Matter Status ===");
+    shell_print(sh, "State: %d", stats.state);
+    shell_print(sh, "Uptime: %llu sec", stats.uptime_sec);
+    shell_print(sh, "Messages TX: %u  RX: %u", stats.messages_sent, stats.messages_received);
+    shell_print(sh, "Commissioning: %u attempts, %u success", 
+               stats.commissioning_attempts, stats.commissioning_success);
+    return 0;
+}
+
+static int cmd_matter_commission(const struct shell *sh, size_t argc, char **argv)
+{
+    uint32_t timeout = 300;  /* 5 minutes default */
+    if (argc > 1) {
+        timeout = strtoul(argv[1], NULL, 10);
+    }
+    
+    int ret = matter_start_commissioning(timeout);
+    if (ret) {
+        shell_error(sh, "Failed to start commissioning: %d", ret);
+        return ret;
+    }
+    
+    shell_print(sh, "Matter commissioning started (timeout: %u sec)", timeout);
+    
+    /* Show QR code and manual code */
+    char qr_code[128];
+    char manual_code[16];
+    
+    if (matter_get_qr_code(qr_code, sizeof(qr_code)) == 0) {
+        shell_print(sh, "\nQR Code: %s", qr_code);
+    }
+    
+    if (matter_get_manual_code(manual_code, sizeof(manual_code)) == 0) {
+        shell_print(sh, "Manual Code: %s", manual_code);
+    }
+    
+    return 0;
+}
+
+static int cmd_matter_reset(const struct shell *sh, size_t argc, char **argv)
+{
+    ARG_UNUSED(argc);
+    ARG_UNUSED(argv);
+    
+    shell_print(sh, "Performing Matter factory reset...");
+    int ret = matter_factory_reset();
+    if (ret) {
+        shell_error(sh, "Factory reset failed: %d", ret);
+        return ret;
+    }
+    
+    shell_print(sh, "Matter factory reset complete");
+    return 0;
+}
+
+SHELL_STATIC_SUBCMD_SET_CREATE(matter_cmds,
+    SHELL_CMD(info, NULL, "Show Matter status", cmd_matter_info),
+    SHELL_CMD(commission, NULL, "Start commissioning [timeout_sec]", cmd_matter_commission),
+    SHELL_CMD(reset, NULL, "Factory reset", cmd_matter_reset),
+    SHELL_SUBCMD_SET_END);
+SHELL_CMD_REGISTER(matter, &matter_cmds, "Matter protocol commands", NULL);
+#endif
+
+/* ===== Thread Commands ===== */
+#if defined(CONFIG_AKIRA_THREAD)
+static int cmd_thread_info(const struct shell *sh, size_t argc, char **argv)
+{
+    ARG_UNUSED(argc);
+    ARG_UNUSED(argv);
+    
+    thread_stats_t stats;
+    int ret = thread_get_stats(&stats);
+    if (ret) {
+        shell_error(sh, "Failed to get Thread stats: %d", ret);
+        return ret;
+    }
+    
+    shell_print(sh, "\n=== Thread Status ===");
+    shell_print(sh, "Role: %d  RLOC16: 0x%04x", stats.role, stats.rloc16);
+    shell_print(sh, "Leader ID: %u  Partition: %u", stats.leader_router_id, stats.partition_id);
+    shell_print(sh, "Children: %u  Neighbors: %u", stats.child_count, stats.neighbor_count);
+    shell_print(sh, "RX: %llu  TX: %llu  RSSI: %d dBm", 
+               stats.packets_received, stats.packets_sent, stats.rssi);
+    return 0;
+}
+
+static int cmd_thread_start(const struct shell *sh, size_t argc, char **argv)
+{
+    ARG_UNUSED(argc);
+    ARG_UNUSED(argv);
+    
+    int ret = thread_start();
+    if (ret) {
+        shell_error(sh, "Failed to start Thread: %d", ret);
+        return ret;
+    }
+    
+    shell_print(sh, "Thread network started");
+    return 0;
+}
+
+static int cmd_thread_stop(const struct shell *sh, size_t argc, char **argv)
+{
+    ARG_UNUSED(argc);
+    ARG_UNUSED(argv);
+    
+    int ret = thread_stop();
+    if (ret) {
+        shell_error(sh, "Failed to stop Thread: %d", ret);
+        return ret;
+    }
+    
+    shell_print(sh, "Thread network stopped");
+    return 0;
+}
+
+SHELL_STATIC_SUBCMD_SET_CREATE(thread_cmds,
+    SHELL_CMD(info, NULL, "Show Thread status", cmd_thread_info),
+    SHELL_CMD(start, NULL, "Start Thread network", cmd_thread_start),
+    SHELL_CMD(stop, NULL, "Stop Thread network", cmd_thread_stop),
+    SHELL_SUBCMD_SET_END);
+SHELL_CMD_REGISTER(thread, &thread_cmds, "Thread protocol commands", NULL);
+#endif
+
+/* ===== AkiraMesh Commands ===== */
+#if defined(CONFIG_AKIRA_MESH)
+static int cmd_mesh_info(const struct shell *sh, size_t argc, char **argv)
+{
+    ARG_UNUSED(argc);
+    ARG_UNUSED(argv);
+    
+    akira_mesh_stats_t stats;
+    int ret = akira_mesh_get_stats(&stats);
+    if (ret) {
+        shell_error(sh, "Failed to get mesh stats: %d", ret);
+        return ret;
+    }
+    
+    shell_print(sh, "\n=== AkiraMesh Status ===");
+    shell_print(sh, "Nodes discovered: %u", stats.nodes_discovered);
+    shell_print(sh, "Messages: %u sent, %u received, %u forwarded",
+               stats.messages_sent, stats.messages_received, stats.messages_forwarded);
+    shell_print(sh, "Active routes: %u", stats.routes_active);
+    shell_print(sh, "Apps distributed: %u", stats.apps_distributed);
+    return 0;
+}
+
+static int cmd_mesh_nodes(const struct shell *sh, size_t argc, char **argv)
+{
+    ARG_UNUSED(argc);
+    ARG_UNUSED(argv);
+    
+    akira_mesh_node_info_t nodes[AKIRA_MESH_MAX_NODES];
+    int count = akira_mesh_get_nodes(nodes, AKIRA_MESH_MAX_NODES);
+    
+    if (count < 0) {
+        shell_error(sh, "Failed to get nodes: %d", count);
+        return count;
+    }
+    
+    shell_print(sh, "\n=== Mesh Nodes ===");
+    shell_print(sh, "%-32s %-8s %-8s %-8s", "Name", "Hops", "RSSI", "Last Seen");
+    shell_print(sh, "----------------------------------------");
+    
+    for (int i = 0; i < count; i++) {
+        uint32_t age_sec = (k_uptime_get_32() - nodes[i].last_seen) / 1000;
+        shell_print(sh, "%-32s %-8u %-8d %us ago",
+                   nodes[i].name, nodes[i].hop_count, nodes[i].rssi, age_sec);
+    }
+    
+    shell_print(sh, "Total: %d nodes", count);
+    return 0;
+}
+
+static int cmd_mesh_start(const struct shell *sh, size_t argc, char **argv)
+{
+    ARG_UNUSED(argc);
+    ARG_UNUSED(argv);
+    
+    int ret = akira_mesh_start();
+    if (ret) {
+        shell_error(sh, "Failed to start mesh: %d", ret);
+        return ret;
+    }
+    
+    shell_print(sh, "AkiraMesh started");
+    return 0;
+}
+
+static int cmd_mesh_stop(const struct shell *sh, size_t argc, char **argv)
+{
+    ARG_UNUSED(argc);
+    ARG_UNUSED(argv);
+    
+    int ret = akira_mesh_stop();
+    if (ret) {
+        shell_error(sh, "Failed to stop mesh: %d", ret);
+        return ret;
+    }
+    
+    shell_print(sh, "AkiraMesh stopped");
+    return 0;
+}
+
+SHELL_STATIC_SUBCMD_SET_CREATE(mesh_cmds,
+    SHELL_CMD(info, NULL, "Show mesh statistics", cmd_mesh_info),
+    SHELL_CMD(nodes, NULL, "List discovered nodes", cmd_mesh_nodes),
+    SHELL_CMD(start, NULL, "Start mesh networking", cmd_mesh_start),
+    SHELL_CMD(stop, NULL, "Stop mesh networking", cmd_mesh_stop),
+    SHELL_SUBCMD_SET_END);
+SHELL_CMD_REGISTER(mesh, &mesh_cmds, "AkiraMesh commands", NULL);
 #endif
