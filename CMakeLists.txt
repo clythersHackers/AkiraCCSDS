@@ -224,6 +224,22 @@ if(CONFIG_AKIRA_WASM_RUNTIME)
     )
 endif()
 
+if(CONFIG_AKIRA_WASM_TIMER)
+    target_sources(app PRIVATE src/api/akira_timer_api.c)
+endif()
+
+if(CONFIG_AKIRA_WASM_UART)
+    target_sources(app PRIVATE src/api/akira_uart_api.c)
+endif()
+
+if(CONFIG_AKIRA_WASM_I2C)
+    target_sources(app PRIVATE src/api/akira_i2c_api.c)
+endif()
+
+if(CONFIG_AKIRA_WASM_PWM)
+    target_sources(app PRIVATE src/api/akira_pwm_api.c)
+endif()
+
 if(CONFIG_BT)
     target_sources(app PRIVATE
         src/api/akira_bt_shell_api.c
@@ -274,19 +290,15 @@ endif()
 # Sensor Drivers (conditional on sensors module)
 if(CONFIG_AKIRA_MODULE_SENSORS)
     if(CONFIG_AKIRA_BME280)
-        target_sources(app PRIVATE src/drivers/bme280.c)
+        target_sources(app PRIVATE src/drivers/sensors/bme280.c)
     endif()
 
     if(CONFIG_AKIRA_NRF24L01)
         target_sources(app PRIVATE src/drivers/nrf24l01.c)
     endif()
 
-    if(CONFIG_AKIRA_LSM6DS3)
-        target_sources(app PRIVATE src/drivers/lsm6ds3.c)
-    endif()
-
     if(CONFIG_AKIRA_INA219)
-        target_sources(app PRIVATE src/drivers/ina219.c)
+        target_sources(app PRIVATE src/drivers/sensors/ina219.c)
     endif()
 endif()
 

@@ -25,6 +25,16 @@
                      <SPIM2_SCLK_GPIO12>; // SCK  - GPIO12
         };
     };
+
+    // I2C0: LSM6DS3 IMU (SDA=GPIO8, SCL=GPIO18)
+    i2cm0_default: i2cm0_default {
+        group1 {
+            pinmux = <I2C0_SDA_GPIO8>,
+                     <I2C0_SCL_GPIO18>;
+            bias-pull-up;
+            drive-open-drain;
+        };
+    };
 };
 
 &spi2
@@ -182,11 +192,21 @@
     current-speed = <115200>;
 };
 
-// I2C configuration (for future expansion)
+// I2C configuration - LSM6DS3 IMU on SDA=GPIO8, SCL=GPIO18
 &i2c0
 {
     status = "okay";
+    pinctrl-0 = <&i2cm0_default>;
+    pinctrl-names = "default";
     clock-frequency = <I2C_BITRATE_STANDARD>;
+
+    // LSM6DS3 6-axis IMU (accel + gyro)
+    // SA0 pulled low → I2C address 0x6A (use 0x6B if SA0 is high)
+    lsm6ds3: lsm6ds3@6a {
+        compatible = "st,lsm6dsl";
+        reg = <0x6a>;
+        status = "okay";
+    };
 };
 
 // USB Device Controller configuration

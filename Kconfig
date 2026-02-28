@@ -1042,6 +1042,61 @@ config AKIRA_WASM_BT_SHELL
       Allows apps to send shell commands via Bluetooth.
       Requires AKIRA_CAP_BT_SHELL capability.
 
+config AKIRA_WASM_TIMER
+    bool "Export Timer API to WASM"
+    default y
+    depends on AKIRA_WASM_API
+    help
+      Export polling timer functions to WASM applications.
+      Provides timer_create/start/stop/elapsed/free backed by k_uptime_get().
+      Requires AKIRA_CAP_TIMER capability in the app manifest.
+
+config AKIRA_WASM_TIMER_MAX_HANDLES
+    int "Maximum number of concurrent WASM timer handles"
+    default 8
+    range 1 32
+    depends on AKIRA_WASM_TIMER
+    help
+      Maximum number of simultaneously active timer handles across all WASM apps.
+      Each handle uses ~20 bytes of static RAM.
+
+config AKIRA_WASM_UART
+    bool "Export UART API to WASM"
+    default n
+    depends on AKIRA_WASM_API && SERIAL
+    help
+      Export UART read/write functions to WASM applications.
+      UART0 (shell/log) is reserved; WASM apps access UART1+.
+      Requires AKIRA_CAP_UART capability in the app manifest.
+
+config AKIRA_WASM_UART_RX_BUF_SIZE
+    int "WASM UART RX ring buffer size (bytes)"
+    default 256
+    range 64 4096
+    depends on AKIRA_WASM_UART
+    help
+      Size of the per-handle IRQ-driven RX ring buffer.
+      Bytes received via UART interrupt are stored here until
+      the WASM app calls uart_read().
+
+config AKIRA_WASM_I2C
+    bool "Export I2C API to WASM"
+    default n
+    depends on AKIRA_WASM_API && I2C
+    help
+      Export raw I2C register read/write functions to WASM applications.
+      Stateless API: WASM passes bus_id + device address + register per call.
+      Requires AKIRA_CAP_I2C capability in the app manifest.
+
+config AKIRA_WASM_PWM
+    bool "Export PWM API to WASM"
+    default n
+    depends on AKIRA_WASM_API && PWM
+    help
+      Export PWM channel control to WASM applications.
+      Provides pwm_set(channel, freq_hz, duty_pct) and pwm_disable(channel).
+      Requires AKIRA_CAP_PWM capability in the app manifest.
+
 endmenu
 
 menu "Akira Settings"

@@ -44,4 +44,20 @@
 #include "akira_bt_shell_api.h"
 #endif
 
+#ifdef CONFIG_AKIRA_WASM_TIMER
+#include "akira_timer_api.h"
+#endif
+
+#ifdef CONFIG_AKIRA_WASM_UART
+#include "akira_uart_api.h"
+#endif
+
+#ifdef CONFIG_AKIRA_WASM_I2C
+#include "akira_i2c_api.h"
+#endif
+
+#ifdef CONFIG_AKIRA_WASM_PWM
+#include "akira_pwm_api.h"
+#endif
+
 #endif /* AKIRA_API_H */

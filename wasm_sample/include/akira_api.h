@@ -461,6 +461,156 @@ extern int rf_send(uint32_t payload_ptr, uint32_t len);
 
 /*
  * =============================================================================
+ * TIMER API
+ * =============================================================================
+ * Required capability: timer
+ *
+ * Polling-only timers backed by the OS uptime counter.
+ * Values are in milliseconds. Use delay() to yield between polls.
+ */
+
+/**
+ * @brief Allocate a new timer handle.
+ * @return Handle index ≥0 on success, -ENOMEM if pool is full.
+ */
+extern int timer_create(void);
+
+/**
+ * @brief Start (or restart) a timer, resetting elapsed time to 0.
+ * @param handle Handle returned by timer_create().
+ * @return 0 on success, negative error code on failure.
+ */
+extern int timer_start(int32_t handle);
+
+/**
+ * @brief Stop a running timer, preserving the elapsed time.
+ * @param handle Handle returned by timer_create().
+ * @return 0 on success, negative error code on failure.
+ */
+extern int timer_stop(int32_t handle);
+
+/**
+ * @brief Return elapsed milliseconds.
+ * Running timer: time since last timer_start().
+ * Stopped timer: time between last timer_start() and timer_stop().
+ * @param handle Handle returned by timer_create().
+ * @return Elapsed milliseconds (int32), negative error code on failure.
+ */
+extern int timer_elapsed(int32_t handle);
+
+/**
+ * @brief Release a timer handle back to the pool.
+ * @param handle Handle returned by timer_create().
+ * @return 0 on success, negative error code on failure.
+ */
+extern int timer_free(int32_t handle);
+
+/*
+ * =============================================================================
+ * UART API
+ * =============================================================================
+ * Required capability: uart
+ *
+ * Full-duplex UART access. UART0 is reserved for the system shell.
+ * port_id 0 = first secondary UART (UART1).
+ * uart_read() is non-blocking — returns 0 if no data is available.
+ */
+
+/**
+ * @brief Open a secondary UART port.
+ * @param port_id  0-indexed secondary UART (0 = UART1).
+ * @param baud_rate Desired baud rate (e.g. 115200).
+ * @return Handle index ≥0 on success, negative error code on failure.
+ */
+extern int uart_open(int32_t port_id, int32_t baud_rate);
+
+/**
+ * @brief Write bytes to an open UART.
+ * @param handle    Handle from uart_open().
+ * @param buf       Pointer to data buffer.
+ * @param len       Number of bytes to write.
+ * @return Bytes written, or negative error code.
+ */
+extern int uart_write(int32_t handle, const uint8_t *buf, uint32_t len);
+
+/**
+ * @brief Non-blocking read from UART RX ring buffer.
+ * Returns 0 immediately if no data is available; use delay() to poll.
+ * @param handle    Handle from uart_open().
+ * @param buf       Destination buffer.
+ * @param max_len   Maximum bytes to read.
+ * @return Bytes read (0 = no data), or negative error code.
+ */
+extern int uart_read(int32_t handle, uint8_t *buf, uint32_t max_len);
+
+/**
+ * @brief Close a UART handle and release its resources.
+ * @param handle Handle from uart_open().
+ * @return 0 on success, negative error code on failure.
+ */
+extern int uart_close(int32_t handle);
+
+/*
+ * =============================================================================
+ * I2C API
+ * =============================================================================
+ * Required capability: i2c
+ *
+ * Stateless raw register access. The LSM6DS3 IMU is on bus 0 at address 0x6A.
+ * All lengths are capped at 256 bytes; addresses must be 7-bit (≤ 0x7F).
+ */
+
+/**
+ * @brief Write bytes to an I2C device register.
+ * @param bus_id   I2C bus index (0 = i2c0, 1 = i2c1).
+ * @param dev_addr 7-bit I2C device address.
+ * @param reg_addr Register address to write to.
+ * @param buf      Pointer to data buffer.
+ * @param len      Number of bytes to write (max 256).
+ * @return 0 on success, negative error code on failure.
+ */
+extern int i2c_write_reg(int32_t bus_id, int32_t dev_addr, int32_t reg_addr,
+                          const uint8_t *buf, uint32_t len);
+
+/**
+ * @brief Read bytes from an I2C device register.
+ * @param bus_id   I2C bus index (0 = i2c0, 1 = i2c1).
+ * @param dev_addr 7-bit I2C device address.
+ * @param reg_addr Register address to read from.
+ * @param buf      Destination buffer.
+ * @param len      Number of bytes to read (max 256).
+ * @return Bytes read on success, negative error code on failure.
+ */
+extern int i2c_read_reg(int32_t bus_id, int32_t dev_addr, int32_t reg_addr,
+                         uint8_t *buf, uint32_t len);
+
+/*
+ * =============================================================================
+ * PWM API
+ * =============================================================================
+ * Required capability: pwm
+ *
+ * Channel-indexed PWM control. Channel 0 is the first available PWM output.
+ */
+
+/**
+ * @brief Set a PWM channel's frequency and duty cycle.
+ * @param channel  Logical PWM channel index (0-based).
+ * @param freq_hz  Frequency in Hertz (1–10,000,000).
+ * @param duty_pct Duty cycle percentage (0–100).
+ * @return 0 on success, negative error code on failure.
+ */
+extern int pwm_set(int32_t channel, int32_t freq_hz, int32_t duty_pct);
+
+/**
+ * @brief Disable a PWM channel (output held low).
+ * @param channel Logical PWM channel index.
+ * @return 0 on success, negative error code on failure.
+ */
+extern int pwm_disable(int32_t channel);
+
+/*
+ * =============================================================================
  * HELPER MACROS
  * =============================================================================
  */

@@ -59,6 +59,31 @@ bool akira_register_native_apis()
         {"bt_shell_send_data", (void *)akira_native_bt_shell_send_data, "(i*i)i", NULL},
         {"bt_shell_is_ready", (void *)akira_native_bt_shell_is_ready, "()i", NULL},
         #endif
+
+        #ifdef CONFIG_AKIRA_WASM_TIMER
+        {"timer_create",  (void *)akira_native_timer_create,  "()i",   NULL},
+        {"timer_start",   (void *)akira_native_timer_start,   "(i)i",  NULL},
+        {"timer_stop",    (void *)akira_native_timer_stop,    "(i)i",  NULL},
+        {"timer_elapsed", (void *)akira_native_timer_elapsed, "(i)i",  NULL},
+        {"timer_free",    (void *)akira_native_timer_free,    "(i)i",  NULL},
+        #endif
+
+        #ifdef CONFIG_AKIRA_WASM_UART
+        {"uart_open",  (void *)akira_native_uart_open,  "(ii)i",   NULL},
+        {"uart_write", (void *)akira_native_uart_write, "(i*~)i",  NULL},
+        {"uart_read",  (void *)akira_native_uart_read,  "(i*~)i",  NULL},
+        {"uart_close", (void *)akira_native_uart_close, "(i)i",    NULL},
+        #endif
+
+        #ifdef CONFIG_AKIRA_WASM_I2C
+        {"i2c_write_reg", (void *)akira_native_i2c_write_reg, "(iii*~)i", NULL},
+        {"i2c_read_reg",  (void *)akira_native_i2c_read_reg,  "(iii*~)i", NULL},
+        #endif
+
+        #ifdef CONFIG_AKIRA_WASM_PWM
+        {"pwm_set",     (void *)akira_native_pwm_set,     "(iii)i", NULL},
+        {"pwm_disable", (void *)akira_native_pwm_disable, "(i)i",   NULL},
+        #endif
     };
 
     return wasm_runtime_register_natives("env", native_syms, sizeof(native_syms) / sizeof(NativeSymbol));

@@ -30,6 +30,10 @@ extern "C" {
 #define AKIRA_CAP_NETWORK (1U << 8)
 #define AKIRA_CAP_GPIO_READ (1U << 9)
 #define AKIRA_CAP_GPIO_WRITE (1U << 10)
+#define AKIRA_CAP_TIMER     (1U << 11)
+#define AKIRA_CAP_UART      (1U << 12)
+#define AKIRA_CAP_I2C       (1U << 13)
+#define AKIRA_CAP_PWM       (1U << 14)
 
 /*
  * Capability check macro using security subsystem.
