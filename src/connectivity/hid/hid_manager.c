@@ -7,6 +7,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include <string.h>
+#include <lib/mem_helper.h>
 
 LOG_MODULE_REGISTER(hid_manager, CONFIG_AKIRA_LOG_LEVEL);
 
@@ -788,7 +789,9 @@ typedef struct {
     bool     used;
 } hid_action_entry_t;
 
-static hid_action_entry_t g_hid_actions[CONFIG_AKIRA_HID_MAX_ACTIONS];
+/* On PSRAM boards this lands in external RAM; otherwise in internal DRAM.
+ * Keep CONFIG_AKIRA_HID_MAX_ACTIONS small (default 8) on non-PSRAM boards. */
+static hid_action_entry_t AKIRA_BULK_BSS g_hid_actions[CONFIG_AKIRA_HID_MAX_ACTIONS];
 static struct k_mutex g_hid_actions_mutex = Z_MUTEX_INITIALIZER(g_hid_actions_mutex);
 
 int hid_action_register(const char *name, uint8_t modifier, uint8_t keycode)

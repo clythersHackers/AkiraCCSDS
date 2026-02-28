@@ -23,7 +23,7 @@ LOG_MODULE_REGISTER(akira_ipc, CONFIG_AKIRA_LOG_LEVEL);
  */
 
 #include "akira_ipc.h"
-#include <lib/mem_helper.h>
+#include <lib/mem_helper.h>  /* akira_malloc_buffer + AKIRA_BULK_BSS */
 #include <string.h>
 #include <errno.h>
 
@@ -50,7 +50,9 @@ typedef struct {
 /* Global State                                                              */
 /*===========================================================================*/
 
-static akira_ipc_topic_t g_ipc_topics[CONFIG_AKIRA_IPC_MAX_TOPICS];
+/* On PSRAM boards this lands in external RAM; otherwise in internal DRAM.
+ * Keep CONFIG_AKIRA_IPC_MAX_TOPICS/SUBS small (defaults 4/2) on non-PSRAM boards. */
+static akira_ipc_topic_t AKIRA_BULK_BSS g_ipc_topics[CONFIG_AKIRA_IPC_MAX_TOPICS];
 static K_MUTEX_DEFINE(g_ipc_mutex);
 
 /*===========================================================================*/

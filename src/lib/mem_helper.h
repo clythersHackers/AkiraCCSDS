@@ -50,6 +50,26 @@ void *akira_malloc_buffer(size_t size);
 void *akira_malloc_buffer_ex(size_t size, mem_source_t *source);
 
 /**
+ * @defgroup akira_bulk_bss PSRAM section placement
+ * @{
+ *
+ * Use AKIRA_BULK_BSS on large static arrays that must not live in internal
+ * DRAM.  On boards with PSRAM (CONFIG_AKIRA_PSRAM=y) the variable lands in
+ * .ext_ram.bss (external RAM).  On boards without PSRAM it falls back to
+ * normal BSS — the Kconfig defaults for those boards must be small enough
+ * to fit in internal DRAM.
+ *
+ * Example:
+ *   static my_big_struct_t AKIRA_BULK_BSS g_table[CONFIG_MY_TABLE_SIZE];
+ */
+#if defined(CONFIG_AKIRA_PSRAM)
+#define AKIRA_BULK_BSS __attribute__((section(".ext_ram.bss"), aligned(4)))
+#else
+#define AKIRA_BULK_BSS  /**< no-op on non-PSRAM targets */
+#endif
+/** @} */
+
+/**
  * @brief Free a buffer allocated with akira_malloc_buffer()
  *
  * Automatically detects whether the buffer is in PSRAM or SRAM

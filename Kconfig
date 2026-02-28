@@ -1050,7 +1050,7 @@ config AKIRA_WASM_HID
 
 config AKIRA_HID_MAX_ACTIONS
     int "Maximum named HID action bindings"
-    default 16
+    default 8
     range 1 64
     depends on AKIRA_WASM_HID
     help
@@ -1080,7 +1080,7 @@ config AKIRA_WASM_IPC
 
 config AKIRA_IPC_MAX_TOPICS
     int "Maximum number of IPC topics"
-    default 8
+    default 4
     range 1 32
     depends on AKIRA_WASM_IPC
     help
@@ -1088,7 +1088,7 @@ config AKIRA_IPC_MAX_TOPICS
 
 config AKIRA_IPC_MAX_SUBS_PER_TOPIC
     int "Maximum subscribers per IPC topic"
-    default 4
+    default 2
     range 1 16
     depends on AKIRA_WASM_IPC
     help
@@ -1096,7 +1096,7 @@ config AKIRA_IPC_MAX_SUBS_PER_TOPIC
 
 config AKIRA_IPC_MSG_MAX_SIZE
     int "Maximum IPC message payload size (bytes)"
-    default 256
+    default 64
     range 16 1024
     depends on AKIRA_WASM_IPC
     help
@@ -1105,7 +1105,7 @@ config AKIRA_IPC_MSG_MAX_SIZE
 
 config AKIRA_IPC_QUEUE_DEPTH
     int "IPC subscriber queue depth (messages)"
-    default 4
+    default 2
     range 1 16
     depends on AKIRA_WASM_IPC
     help
