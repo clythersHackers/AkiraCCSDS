@@ -30,96 +30,71 @@ LOG_MODULE_REGISTER(akira_lifecycle_api, CONFIG_AKIRA_LOG_LEVEL);
 #include <runtime/app_manager/app_manager.h>
 #endif
 
-/* ── Internal helper ─────────────────────────────────────────────────────── */
+/* APP_NAME_MAX_LEN defined in app_manager.h; provide fallback for non-manager builds */
+#ifndef APP_NAME_MAX_LEN
+#define APP_NAME_MAX_LEN 32
+#endif
 
-/**
- * @brief Resolve the calling app's name from the exec environment.
- * @return 0 on success, negative on error (buf filled with empty string on error)
+/* ── Deferred app_switch ─────────────────────────────────────────────────
+ *
+ * app_switch() must NOT call app_manager_start() synchronously from inside
+ * the WASM native call context.  app_manager_start() reads the target WASM
+ * binary from LittleFS (flash), which temporarily disables the SPI0 PSRAM
+ * cache on ESP32-S3.  Any concurrent PSRAM access (WiFi DMA, display DMA,
+ * other threads with PSRAM buffers) during that window causes a hard fault.
+ *
+ * We also must NOT run it on the system work queue: app_manager_start()
+ * calls LittleFS, manifest parser, and akira_runtime_start — this chain
+ * easily exceeds sysworkq's default 1 KB stack → stack overflow / fatal.
+ *
+ * Solution: dedicated work queue with its own 4 KB SRAM stack.
+ *   1. app_switch() copies the target name, schedules a k_work_delayable
+ *      item, and returns 0 immediately.
+ *   2. The WASM thread returns from main(), exits; slot-cleanup work frees
+ *      its SRAM stack (submitted to sysworkq, lightweight).
+ *   3. 200 ms later the switch work fires on the dedicated queue and calls
+ *      app_manager_start() safely — WASM thread gone, SPI0 / PSRAM idle.
  */
-static int get_caller_name(wasm_exec_env_t exec_env, char *buf, size_t buflen)
+#define SWITCH_WQ_STACK_SIZE 4096
+static K_THREAD_STACK_DEFINE(g_switch_wq_stack, SWITCH_WQ_STACK_SIZE);
+static struct k_work_q        g_switch_wq;
+static bool                   g_switch_wq_started;
+
+static char                   g_switch_target[APP_NAME_MAX_LEN];
+static struct k_work_delayable g_switch_work;
+
+static void switch_work_fn(struct k_work *work)
 {
-    wasm_module_inst_t inst = wasm_runtime_get_module_inst(exec_env);
-    if (!inst) {
-        buf[0] = '\0';
-        return -EINVAL;
+    ARG_UNUSED(work);
+    if (g_switch_target[0] == '\0') {
+        return;
     }
-    return akira_runtime_get_name_for_module_inst(inst, buf, buflen);
+    LOG_INF("app_switch: starting '%s' (deferred)", g_switch_target);
+    int ret = app_manager_start(g_switch_target);
+    if (ret < 0) {
+        LOG_ERR("app_switch: deferred start of '%s' failed: %d",
+                g_switch_target, ret);
+    }
+    g_switch_target[0] = '\0';
+}
+
+static void ensure_switch_wq_init(void)
+{
+    if (g_switch_wq_started) {
+        return;
+    }
+    k_work_init_delayable(&g_switch_work, switch_work_fn);
+    struct k_work_queue_config cfg = {
+        .name      = "switch_wq",
+        .no_yield  = false,
+    };
+    k_work_queue_start(&g_switch_wq, g_switch_wq_stack,
+                       K_THREAD_STACK_SIZEOF(g_switch_wq_stack),
+                       CONFIG_AKIRA_WASM_APP_PRIORITY, &cfg);
+    g_switch_wq_started = true;
 }
 
 /* ── WASM Exports ────────────────────────────────────────────────────────── */
-
-int akira_native_app_start(wasm_exec_env_t exec_env, const char *name)
-{
-    AKIRA_CHECK_CAP_OR_RETURN(exec_env, AKIRA_CAP_APP_CONTROL, -EPERM);
-
-    if (!name || name[0] == '\0') {
-        return -EINVAL;
-    }
-
-    /* Prevent self-start (recursive instantiation) */
-    char self[APP_NAME_MAX_LEN] = {0};
-    get_caller_name(exec_env, self, sizeof(self));
-    if (self[0] != '\0' && strncmp(self, name, APP_NAME_MAX_LEN) == 0) {
-        LOG_WRN("app_start: self-start blocked for '%s'", name);
-        return -EINVAL;
-    }
-
-#ifdef CONFIG_AKIRA_APP_MANAGER
-    int ret = app_manager_start(name);
-    if (ret < 0) {
-        LOG_ERR("app_start('%s') failed: %d", name, ret);
-    }
-    return ret;
-#else
-    return -ENOTSUP;
-#endif
-}
-
-int akira_native_app_stop(wasm_exec_env_t exec_env, const char *name)
-{
-    AKIRA_CHECK_CAP_OR_RETURN(exec_env, AKIRA_CAP_APP_CONTROL, -EPERM);
-
-    if (!name || name[0] == '\0') {
-        return -EINVAL;
-    }
-
-#ifdef CONFIG_AKIRA_APP_MANAGER
-    int ret = app_manager_stop(name);
-    if (ret < 0) {
-        LOG_ERR("app_stop('%s') failed: %d", name, ret);
-    }
-    return ret;
-#else
-    return -ENOTSUP;
-#endif
-}
-
-int akira_native_app_restart(wasm_exec_env_t exec_env, const char *name)
-{
-    AKIRA_CHECK_CAP_OR_RETURN(exec_env, AKIRA_CAP_APP_CONTROL, -EPERM);
-
-    if (!name || name[0] == '\0') {
-        return -EINVAL;
-    }
-
-    /* Prevent self-restart */
-    char self[APP_NAME_MAX_LEN] = {0};
-    get_caller_name(exec_env, self, sizeof(self));
-    if (self[0] != '\0' && strncmp(self, name, APP_NAME_MAX_LEN) == 0) {
-        LOG_WRN("app_restart: self-restart blocked for '%s'", name);
-        return -EINVAL;
-    }
-
-#ifdef CONFIG_AKIRA_APP_MANAGER
-    int ret = app_manager_restart(name);
-    if (ret < 0) {
-        LOG_ERR("app_restart('%s') failed: %d", name, ret);
-    }
-    return ret;
-#else
-    return -ENOTSUP;
-#endif
-}
 
 int akira_native_app_get_status(wasm_exec_env_t exec_env, const char *name)
 {
@@ -214,4 +189,90 @@ int akira_native_app_get_self_name(wasm_exec_env_t exec_env,
     memcpy(wasm_buf, name, copy);
     wasm_buf[copy] = '\0';
     return (int)copy;
+}
+
+/* ── Write-control API (requires AKIRA_CAP_APP_CONTROL) ─────────────────── */
+
+int akira_native_app_start(wasm_exec_env_t exec_env, const char *name)
+{
+    AKIRA_CHECK_CAP_OR_RETURN(exec_env, AKIRA_CAP_APP_CONTROL, -EPERM);
+
+    if (!name || name[0] == '\0') {
+        LOG_ERR("app_start: invalid name");
+        return -EINVAL;
+    }
+
+#ifdef CONFIG_AKIRA_APP_MANAGER
+    return app_manager_start(name);
+#else
+    return -ENOTSUP;
+#endif
+}
+
+int akira_native_app_stop(wasm_exec_env_t exec_env, const char *name)
+{
+    AKIRA_CHECK_CAP_OR_RETURN(exec_env, AKIRA_CAP_APP_CONTROL, -EPERM);
+
+    if (!name || name[0] == '\0') {
+        LOG_ERR("app_stop: invalid name");
+        return -EINVAL;
+    }
+
+    /* Prevent an app from stopping itself via API — use return 0 from main() */
+    wasm_module_inst_t inst = wasm_runtime_get_module_inst(exec_env);
+    if (inst) {
+        char self[APP_NAME_MAX_LEN] = {0};
+        if (akira_runtime_get_name_for_module_inst(inst, self, sizeof(self)) == 0 &&
+            self[0] != '\0' && strcmp(self, name) == 0) {
+            LOG_WRN("app_stop: cannot stop self (%s) — return 0 from main instead", name);
+            return -EINVAL;
+        }
+    }
+
+#ifdef CONFIG_AKIRA_APP_MANAGER
+    return app_manager_stop(name);
+#else
+    return -ENOTSUP;
+#endif
+}
+
+int akira_native_app_switch(wasm_exec_env_t exec_env, const char *name)
+{
+    /* Both app.switch and app.control grant access to this lighter operation */
+    uint32_t mask = akira_security_get_cap_mask(exec_env);
+    if (!(mask & (AKIRA_CAP_APP_SWITCH | AKIRA_CAP_APP_CONTROL))) {
+        LOG_WRN("app_switch: capability denied (need app.switch or app.control)");
+        return -EPERM;
+    }
+
+    if (!name || name[0] == '\0') {
+        LOG_ERR("app_switch: invalid target name");
+        return -EINVAL;
+    }
+
+    /* Prevent switching to self */
+    wasm_module_inst_t inst = wasm_runtime_get_module_inst(exec_env);
+    if (inst) {
+        char self[APP_NAME_MAX_LEN] = {0};
+        if (akira_runtime_get_name_for_module_inst(inst, self, sizeof(self)) == 0 &&
+            self[0] != '\0' && strcmp(self, name) == 0) {
+            LOG_WRN("app_switch: cannot switch to self (%s)", name);
+            return -EINVAL;
+        }
+    }
+
+#ifdef CONFIG_AKIRA_APP_MANAGER
+    ensure_switch_wq_init();
+
+    /* Cancel any pending (unstarted) switch — last call wins */
+    k_work_cancel_delayable(&g_switch_work);
+
+    strncpy(g_switch_target, name, APP_NAME_MAX_LEN - 1);
+    g_switch_target[APP_NAME_MAX_LEN - 1] = '\0';
+
+    k_work_reschedule_for_queue(&g_switch_wq, &g_switch_work, K_MSEC(200));
+    return 0;
+#else
+    return -ENOTSUP;
+#endif
 }

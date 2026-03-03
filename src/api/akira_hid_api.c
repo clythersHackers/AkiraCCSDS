@@ -336,3 +336,51 @@ int akira_native_hid_action_trigger(wasm_exec_env_t exec_env, const char *name)
     return -ENOTSUP;
 #endif
 }
+
+int akira_native_hid_set_transport(wasm_exec_env_t exec_env, int32_t transport)
+{
+    AKIRA_CHECK_CAP_OR_RETURN(exec_env, AKIRA_CAP_HID, -EPERM);
+
+    if (transport < 0 || transport > 3) {
+        return -EINVAL;
+    }
+
+#ifdef CONFIG_AKIRA_HID
+    return hid_manager_set_transport((hid_transport_t)transport);
+#else
+    return -ENOTSUP;
+#endif
+}
+
+int akira_native_hid_set_device_types(wasm_exec_env_t exec_env, int32_t types)
+{
+    AKIRA_CHECK_CAP_OR_RETURN(exec_env, AKIRA_CAP_HID, -EPERM);
+
+    if (types <= 0) {
+        return -EINVAL;
+    }
+
+#ifdef CONFIG_AKIRA_HID
+    return hid_manager_set_device_types((hid_device_type_t)types);
+#endif
+}
+
+int akira_native_hid_init(wasm_exec_env_t exec_env, int32_t transport, int32_t types)
+{
+    AKIRA_CHECK_CAP_OR_RETURN(exec_env, AKIRA_CAP_HID, -EPERM);
+
+    if (transport < 0 || transport > 3) {
+        LOG_ERR("hid_init: invalid transport %d", transport);
+        return -EINVAL;
+    }
+    if (types <= 0 || types > 0x07) {
+        LOG_ERR("hid_init: invalid device_types 0x%02x", types);
+        return -EINVAL;
+    }
+
+#ifdef CONFIG_AKIRA_HID
+    return hid_manager_setup((hid_transport_t)transport, (hid_device_type_t)types);
+#else
+    return -ENOTSUP;
+#endif
+}

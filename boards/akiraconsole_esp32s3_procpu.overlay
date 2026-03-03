@@ -240,6 +240,14 @@
 	};
 };
 
+/* Route Zephyr settings NVS backend to our dedicated NVS partition.
+ * Required for CONFIG_BT_SETTINGS=y (bond persistence). */
+/ {
+    chosen {
+        zephyr,settings-partition = &akira_settings_nvs_partition;
+    };
+};
+
 // Flash memory partitions - add custom partitions to existing partition table
 &flash0 {
     partitions {

@@ -79,24 +79,42 @@ config WAMR_HEAP_SIZE
       when total WAMR-managed memory exceeds this limit.
 
 config AKIRA_WASM_APP_STACK_SIZE
+    # WASM app thread stacks always live in SRAM (never PSRAM) to avoid
+    # SPI0 bus contention on ESP32-S3 where PSRAM and internal flash share
+    # the same bus: a direct flash read (e.g. from LittleFS fs_open) briefly
+    # disables PSRAM cache access, crashing any thread whose stack is in PSRAM.
+    # The WAMR interpreter operand stack lives in the WASM heap (PSRAM); the
+    # Zephyr thread stack only carries the C native call chain (~4-8 KB).
+    # 8 KB is sufficient for WAMR instantiate + fs I/O + native dispatch.
+    # Constrained non-PSRAM boards (nRF54L15, etc.) can reduce to 4096.
     int "WASM app Zephyr thread stack size (bytes)"
-    default 4096
+    default 8192
     depends on AKIRA_WASM_RUNTIME
     help
       Stack size for the Zephyr k_thread that hosts each WASM app.
-      This is the CALLING thread stack, not the WASM exec stack
-      (which lives inside the WAMR instance heap).
-      4096 is sufficient for the WAMR call frame on most targets.
-      Constrained boards (e.g. nRF54L15) can reduce to 2048.
+      Must reside in internal SRAM — do NOT use PSRAM for thread stacks
+      on boards where PSRAM and flash share the SPI0 bus (ESP32-S3 family).
+      The WASM heap and WASM binary can still use PSRAM.
+      Total SRAM consumed: CONFIG_MAX_CONTAINERS * this value.
+      Override per-board in boards/<board>.conf.
 
 config AKIRA_WASM_APP_PRIORITY
     int "WASM app thread scheduling priority"
-    default 10
+    # 14 matches Zephyr's default shell thread priority so WASM apps and the
+    # shell share the CPU fairly (same-priority round-robin).  A value < 14
+    # (e.g. the old default of 10) made WASM apps higher priority than the
+    # shell, allowing a tight-looping app (e.g. logic_analyzer at 100 us/sample)
+    # to permanently preempt the shell thread and lock out the console.
+    default 14
     depends on AKIRA_WASM_RUNTIME
     help
-      Cooperative thread priority for WASM app threads.
+      Preemptive thread priority for WASM app threads.
       Lower value = higher priority in Zephyr scheduling.
-      Default 10 places WASM apps below system threads but above idle.
+      Default 14 places WASM apps at the same level as the Zephyr shell thread
+      so neither can starve the other.  Increase (lower priority) if system
+      responsiveness under heavy WASM load is more important than app frame
+      rate.  Decrease (higher priority) only if an app needs real-time
+      scheduling and you accept potential shell unresponsiveness.
 
 config MAX_CONTAINERS
     int "Maximum number of concurrently loaded WASM containers"
@@ -1080,19 +1098,23 @@ config AKIRA_WASM_IPC
 
 config AKIRA_IPC_MAX_TOPICS
     int "Maximum number of IPC topics"
-    default 4
+    default 8
     range 1 32
     depends on AKIRA_WASM_IPC
     help
       Maximum number of simultaneously active named IPC topics.
+      Default raised to 8 to accommodate the built-in akira.lifecycle topic
+      plus additional user topics.
 
 config AKIRA_IPC_MAX_SUBS_PER_TOPIC
     int "Maximum subscribers per IPC topic"
-    default 2
+    default 4
     range 1 16
     depends on AKIRA_WASM_IPC
     help
       Maximum number of apps that can subscribe to one topic.
+      Default raised to 4 so supervisor plus multiple concurrent apps can
+      all subscribe to akira.lifecycle simultaneously.
 
 config AKIRA_IPC_MSG_MAX_SIZE
     int "Maximum IPC message payload size (bytes)"

@@ -76,6 +76,29 @@ extern "C"
     int hid_manager_set_transport(hid_transport_t transport);
 
     /**
+     * @brief Set active device types before enabling HID
+     *
+     * Must be called before hid_manager_enable(). Returns -EBUSY if already
+     * enabled. Bitmask values: HID_DEVICE_KEYBOARD=0x01, HID_DEVICE_GAMEPAD=0x02,
+     * HID_DEVICE_MOUSE=0x04.
+     * @param types Bitmask of hid_device_type_t values to enable
+     * @return 0 on success, negative error code on failure
+     */
+    int hid_manager_set_device_types(hid_device_type_t types);
+
+    /**
+     * @brief One-shot HID setup: select transport, set device types, and enable.
+     *
+     * Convenience wrapper for the common pattern:
+     *   hid_manager_set_transport() + hid_manager_set_device_types() + hid_manager_enable()
+     *
+     * @param transport    Transport to use (HID_TRANSPORT_BLE / HID_TRANSPORT_USB)
+     * @param device_types Bitmask of hid_device_type_t values (HID_DEVICE_COMBO = 0x07)
+     * @return 0 on success, negative error code on failure
+     */
+    int hid_manager_setup(hid_transport_t transport, hid_device_type_t device_types);
+
+    /**
      * @brief Get current transport
      * @return Current transport type
      */

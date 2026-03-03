@@ -199,6 +199,7 @@ target_sources(app PRIVATE
     src/runtime/manifest_parser.c
     src/runtime/app_loader/app_loader.c
     src/runtime/app_manager/app_manager.c
+    src/runtime/app_manager/app_events.c
 )
 
 # Core API wrappers (must be stateless, call akira_security_check first)

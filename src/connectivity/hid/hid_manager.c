@@ -211,9 +211,11 @@ int hid_manager_init(const hid_config_t *config)
     }
     else
     {
-        /* Default config */
+        /* Default config — transport is chosen at enable time by the first
+         * registered transport (or via hid_manager_set_transport).
+         * WASM apps call hid_set_transport(BLE) + hid_enable() explicitly. */
         hid_mgr.config.device_types = HID_DEVICE_KEYBOARD;
-        hid_mgr.config.preferred_transport = HID_TRANSPORT_USB;
+        hid_mgr.config.preferred_transport = HID_TRANSPORT_NONE;
         hid_mgr.config.device_name = "AkiraOS HID";
         hid_mgr.config.vendor_id = 0x1234;
         hid_mgr.config.product_id = 0x5678;
@@ -365,6 +367,46 @@ int hid_manager_set_transport(hid_transport_t transport)
 hid_transport_t hid_manager_get_transport(void)
 {
     return hid_mgr.state.transport;
+}
+
+int hid_manager_set_device_types(hid_device_type_t types)
+{
+    if (!hid_mgr.initialized)
+    {
+        return -EINVAL;
+    }
+
+    k_mutex_lock(&hid_mgr.mutex, K_FOREVER);
+
+    if (hid_mgr.state.enabled)
+    {
+        k_mutex_unlock(&hid_mgr.mutex);
+        LOG_WRN("Cannot change device types while HID is enabled");
+        return -EBUSY;
+    }
+
+    hid_mgr.config.device_types = types;
+    hid_mgr.state.device_type   = types;
+
+    k_mutex_unlock(&hid_mgr.mutex);
+
+    LOG_INF("HID device types set to 0x%02x", (unsigned)types);
+    return 0;
+}
+
+int hid_manager_setup(hid_transport_t transport, hid_device_type_t device_types)
+{
+    int rc = hid_manager_set_transport(transport);
+    if (rc < 0) {
+        LOG_ERR("hid_manager_setup: set_transport failed: %d", rc);
+        return rc;
+    }
+    rc = hid_manager_set_device_types(device_types);
+    if (rc < 0) {
+        LOG_ERR("hid_manager_setup: set_device_types failed: %d", rc);
+        return rc;
+    }
+    return hid_manager_enable();
 }
 
 bool hid_manager_is_connected(void)

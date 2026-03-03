@@ -17,6 +17,12 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+
+#ifdef CONFIG_AKIRA_WASM_IPC
+#include <runtime/akira_ipc.h>
+#endif
+
+#include "app_events.h"
 LOG_MODULE_REGISTER(app_manager, CONFIG_AKIRA_LOG_LEVEL);
 
 /* ===== Configuration ===== */
@@ -26,6 +32,13 @@ LOG_MODULE_REGISTER(app_manager, CONFIG_AKIRA_LOG_LEVEL);
 #define REGISTRY_MAGIC 0x414B4150 /* "AKAP" */
 #define REGISTRY_VERSION 1
 #define MAX_WASM_MAGIC 8
+
+/* IPC lifecycle topic — supervisor and other apps subscribe to this */
+#ifdef CONFIG_AKIRA_WASM_IPC
+#define AKIRA_LIFECYCLE_TOPIC "akira.lifecycle"
+/* Payload layout matches akira_lifecycle_event_t in wasm_sample/include/akira_api.h */
+typedef struct { char name[32]; int state; } akira_lc_evt_t;
+#endif
 
 /* WASM magic bytes: \0asm */
 static const uint8_t WASM_MAGIC[] = {0x00, 0x61, 0x73, 0x6D};
@@ -131,6 +144,9 @@ int app_manager_init(void)
 
     /* Initialize restart work */
     k_work_init_delayable(&g_restart_work, restart_work_handler);
+
+    /* Initialize the app event bus */
+    app_events_init();
 
     /* Register exit callback so the app manager learns when a WASM thread
      * finishes and can transition its state to STOPPED automatically. */
@@ -537,19 +553,11 @@ int app_manager_start(const char *name)
             return -EIO;
         }
 
-        /* Install into Akira runtime (saves binary + creates container).
-         * If a manifest JSON was stored alongside the binary (e.g. from an
-         * SD-card or path-based install), pass it so cap_mask is applied
-         * even when the WASM binary itself has no embedded .akira.manifest
-         * custom section. For web-installed apps the JSON won't be there;
-         * in that case the runtime falls back to the embedded section. */
+        /* Install into Akira runtime (saves binary + creates container). */
         char manifest_json[512] = {0};
         char json_path[APP_PATH_MAX_LEN];
         snprintf(json_path, sizeof(json_path), "%s/%03d_%s.json",
                  APPS_DIR, app->id, app->name);
-        /* Check existence first: fs_open() on a missing file triggers a
-         * kernel-level LOG_ERR in the Zephyr FS subsystem that we can't
-         * suppress from user code. */
         ssize_t json_len = -1;
         if (fs_manager_exists(json_path)) {
             json_len = fs_manager_read_file(json_path, manifest_json,
@@ -576,13 +584,29 @@ int app_manager_start(const char *name)
         app->container_id = load_ret;
     }
 
-    /* Start the app by container ID */
-    int ret = akira_runtime_start(app->container_id);
+    int container_id = app->container_id;
+    k_mutex_unlock(&g_registry_mutex);
+
+    int ret = akira_runtime_start(container_id);
+
+    /* Re-acquire to update registry state atomically. */
+    k_mutex_lock(&g_registry_mutex, K_FOREVER);
+    /* Re-find the entry: a concurrent uninstall is theoretically possible. */
+    app = find_app_by_name(name);
+    if (!app) {
+        k_mutex_unlock(&g_registry_mutex);
+        if (ret == 0) {
+            /* App started but registry entry vanished — stop the orphan slot. */
+            akira_runtime_stop(container_id);
+        }
+        return -ENOENT;
+    }
+
     if (ret < 0)
     {
-        k_mutex_unlock(&g_registry_mutex);
         LOG_ERR("Failed to start app: %d", ret);
         set_app_state(app, APP_STATE_ERROR);
+        k_mutex_unlock(&g_registry_mutex);
         return ret;
     }
 
@@ -590,7 +614,22 @@ int app_manager_start(const char *name)
     set_app_state(app, APP_STATE_RUNNING);
     registry_save();
 
+    /* Snapshot name before unlock for post-unlock IPC publish.
+     * IPC has its own separate mutex (g_ipc_mutex) — safe to call after
+     * g_registry_mutex is released.  Never publish while holding the mutex
+     * to keep lock scope short and avoid unexpected hold-time increases. */
+    char lc_name[APP_NAME_MAX_LEN];
+    strncpy(lc_name, app->name, APP_NAME_MAX_LEN);
     k_mutex_unlock(&g_registry_mutex);
+
+#ifdef CONFIG_AKIRA_WASM_IPC
+    {
+        akira_lc_evt_t ev;
+        strncpy(ev.name, lc_name, sizeof(ev.name));
+        ev.state = (int)APP_STATE_RUNNING;
+        akira_ipc_publish(AKIRA_LIFECYCLE_TOPIC, &ev, sizeof(ev));
+    }
+#endif
 
     LOG_INF("Started app: %s", name);
     return 0;
@@ -625,21 +664,61 @@ int app_manager_stop(const char *name)
         return -EINVAL;
     }
 
-    int ret = akira_runtime_stop(app->container_id);
-    if (ret < 0)
-    {
-        k_mutex_unlock(&g_registry_mutex);
-        LOG_ERR("Failed to stop app: %d", ret);
-        return ret;
-    }
+    /* Snapshot and invalidate the container_id BEFORE releasing the mutex.
+     * This prevents a concurrent app_manager_start from picking up the stale
+     * slot ID while the thread is still being torn down. */
+    int container_id = app->container_id;
+    app->container_id = -1;
 
-    set_app_state(app, APP_STATE_STOPPED);
-    registry_save();
+    /* Snapshot name before unlock for post-unlock IPC publish */
+    char lc_name_s[APP_NAME_MAX_LEN];
+    strncpy(lc_name_s, app->name, APP_NAME_MAX_LEN);
 
+    /* Release g_registry_mutex BEFORE calling akira_runtime_stop().
+     *
+     * akira_runtime_stop() calls k_thread_join() to wait for the WASM app
+     * thread to finish.  That thread's cleanup (wasm_app_thread_fn thread_exit
+     * label) calls g_exit_cb → app_manager_on_runtime_exit() which needs
+     * g_registry_mutex.  Holding the mutex here would deadlock:
+     *   this thread:  holds mutex, blocks in k_thread_join
+     *   WASM thread:  tries k_mutex_lock(registry) → blocks
+     *   k_thread_join never completes → permanent freeze
+     * By releasing the mutex first, the exit callback runs freely while we
+     * wait for the thread to die.  We re-acquire below to finalize state. */
     k_mutex_unlock(&g_registry_mutex);
 
+    int ret = akira_runtime_stop(container_id);
+    if (ret < 0)
+    {
+        LOG_ERR("Failed to stop app: %d", ret);
+        /* Even on failure, update registry to reflect the stopped state so
+         * the app can be restarted cleanly. */
+    }
+
+    k_mutex_lock(&g_registry_mutex, K_FOREVER);
+    app = find_app_by_name(name); /* re-find: mutex was temporarily released */
+    if (app)
+    {
+        set_app_state(app, APP_STATE_STOPPED);
+        if (app->container_id >= 0) {
+            /* Shouldn't happen, but defensively clear if exit_cb didn't. */
+            app->container_id = -1;
+        }
+        registry_save();
+    }
+    k_mutex_unlock(&g_registry_mutex);
+
+#ifdef CONFIG_AKIRA_WASM_IPC
+    {
+        akira_lc_evt_t ev;
+        strncpy(ev.name, lc_name_s, sizeof(ev.name));
+        ev.state = (int)APP_STATE_STOPPED;
+        akira_ipc_publish(AKIRA_LIFECYCLE_TOPIC, &ev, sizeof(ev));
+    }
+#endif
+
     LOG_INF("Stopped app: %s", name);
-    return 0;
+    return ret < 0 ? ret : 0;
 }
 
 int app_manager_restart(const char *name)
@@ -661,10 +740,21 @@ int app_manager_restart(const char *name)
     /* Reset crash counter */
     app->crash_count = 0;
 
-    /* Stop if running */
-    if (app->state == APP_STATE_RUNNING && app->container_id >= 0)
+    /* Stop if running — must release mutex first (same deadlock reason as
+     * app_manager_stop: akira_runtime_stop's k_thread_join waits for the
+     * WASM thread which needs g_registry_mutex in its exit callback). */
+    int container_id = app->container_id;
+    if (app->state == APP_STATE_RUNNING && container_id >= 0)
     {
-        akira_runtime_stop(app->container_id);
+        app->container_id = -1; /* prevent stale reuse */
+        k_mutex_unlock(&g_registry_mutex);
+        akira_runtime_stop(container_id);
+        k_mutex_lock(&g_registry_mutex, K_FOREVER);
+        app = find_app_by_name(name);
+        if (!app) {
+            k_mutex_unlock(&g_registry_mutex);
+            return -ENOENT;
+        }
         set_app_state(app, APP_STATE_STOPPED);
     }
 
@@ -764,6 +854,10 @@ int app_manager_get_running_count(void)
         return 0;
     }
 
+    /* g_registry_mutex is reentrant in Zephyr (same thread may re-lock).
+     * This function is called both externally and from app_manager_start()
+     * which already holds the mutex — re-entry is safe. */
+    k_mutex_lock(&g_registry_mutex, K_FOREVER);
     int count = 0;
     for (int i = 0; i < CONFIG_AKIRA_APP_MAX_INSTALLED; i++)
     {
@@ -772,6 +866,7 @@ int app_manager_get_running_count(void)
             count++;
         }
     }
+    k_mutex_unlock(&g_registry_mutex);
     return count;
 }
 
@@ -1356,6 +1451,9 @@ static void restart_work_handler(struct k_work *work)
  */
 static void app_manager_on_runtime_exit(int slot, int exit_code)
 {
+    char lc_name[APP_NAME_MAX_LEN] = {0};
+    int  lc_state = -1;
+
     k_mutex_lock(&g_registry_mutex, K_FOREVER);
 
     for (int i = 0; i < CONFIG_AKIRA_APP_MAX_INSTALLED; i++)
@@ -1368,6 +1466,10 @@ static void app_manager_on_runtime_exit(int slot, int exit_code)
             /* container_id is no longer valid after exit */
             g_registry[i].container_id = -1;
 
+            /* Snapshot name+state before unlock for post-unlock IPC publish */
+            strncpy(lc_name, g_registry[i].name, APP_NAME_MAX_LEN);
+            lc_state = (int)new_state;
+
             set_app_state(&g_registry[i], new_state);
             registry_save();
             break;
@@ -1375,4 +1477,13 @@ static void app_manager_on_runtime_exit(int slot, int exit_code)
     }
 
     k_mutex_unlock(&g_registry_mutex);
+
+#ifdef CONFIG_AKIRA_WASM_IPC
+    if (lc_state >= 0) {
+        akira_lc_evt_t ev;
+        strncpy(ev.name, lc_name, sizeof(ev.name));
+        ev.state = lc_state;
+        akira_ipc_publish(AKIRA_LIFECYCLE_TOPIC, &ev, sizeof(ev));
+    }
+#endif
 }

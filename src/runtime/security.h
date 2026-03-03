@@ -38,6 +38,10 @@ extern "C" {
 #define AKIRA_CAP_HID         (1U << 15)
 #define AKIRA_CAP_APP_CONTROL (1U << 16)
 #define AKIRA_CAP_IPC         (1U << 17)
+/* Lightweight handoff: start another app and exit self — no stop/pause of
+ * arbitrary apps.  Games and utilities can use this without full supervisor
+ * power.  Manifest string: "app.switch" */
+#define AKIRA_CAP_APP_SWITCH  (1U << 18)
 
 /*
  * Capability check macro using security subsystem.

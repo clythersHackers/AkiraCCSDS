@@ -33,6 +33,7 @@ uint32_t akira_capability_str_to_mask(const char *cap)
     if (strcmp(cap, "hid") == 0)            return AKIRA_CAP_HID;
     if (strcmp(cap, "app.control") == 0)    return AKIRA_CAP_APP_CONTROL;
     if (strcmp(cap, "ipc") == 0)            return AKIRA_CAP_IPC;
+    if (strcmp(cap, "app.switch") == 0)     return AKIRA_CAP_APP_SWITCH;
     /* Wildcard patterns */
     if (strcmp(cap, "display.*") == 0)      return AKIRA_CAP_DISPLAY_WRITE;
     if (strcmp(cap, "input.*") == 0)        return AKIRA_CAP_INPUT_READ | AKIRA_CAP_INPUT_WRITE;
@@ -66,6 +67,7 @@ char* akira_capability_mask_to_str(uint32_t cap)
     if (cap & AKIRA_CAP_HID)         return "hid";
     if (cap & AKIRA_CAP_APP_CONTROL) return "app.control";
     if (cap & AKIRA_CAP_IPC)         return "ipc";
+    if (cap & AKIRA_CAP_APP_SWITCH)  return "app.switch";
     return 0;
 }
 

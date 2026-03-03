@@ -25,30 +25,6 @@ extern "C" {
 #endif
 
 /**
- * @brief Start an installed app by name
- * @param exec_env  WASM execution environment (caller context)
- * @param name      Target app name (null-terminated)
- * @return 0 on success, -EINVAL if name == self, -ENOENT if not found
- */
-int akira_native_app_start(wasm_exec_env_t exec_env, const char *name);
-
-/**
- * @brief Stop a running app by name
- * @param exec_env  WASM execution environment
- * @param name      Target app name
- * @return 0 on success, negative on error
- */
-int akira_native_app_stop(wasm_exec_env_t exec_env, const char *name);
-
-/**
- * @brief Restart an app (stop + start, resets crash counter)
- * @param exec_env  WASM execution environment
- * @param name      Target app name
- * @return 0 on success, negative on error
- */
-int akira_native_app_restart(wasm_exec_env_t exec_env, const char *name);
-
-/**
  * @brief Get the state of an app as an integer
  * @param exec_env  WASM execution environment
  * @param name      Target app name
@@ -80,6 +56,61 @@ int akira_native_app_list(wasm_exec_env_t exec_env,
  */
 int akira_native_app_get_self_name(wasm_exec_env_t exec_env,
                                    uint32_t buf_ptr, uint32_t buf_len);
+
+/**
+ * @brief Start an installed app by name.
+ *
+ * Requires AKIRA_CAP_APP_CONTROL.  Calls app_manager_start() which loads
+ * the binary, creates a WAMR instance, and spawns its thread.  Returns once
+ * the app's WAMR instantiation has succeeded or failed.
+ *
+ * @param exec_env WASM execution environment
+ * @param name     Null-terminated app name
+ * @return 0 on success, negative Zephyr errno on failure
+ *   -EINVAL  empty or NULL name
+ *   -ENOENT  app not installed
+ *   -EBUSY   max concurrent apps already running
+ *   -EPERM   capability not granted
+ */
+int akira_native_app_start(wasm_exec_env_t exec_env, const char *name);
+
+/**
+ * @brief Stop a running app by name.
+ *
+ * Requires AKIRA_CAP_APP_CONTROL.  An app cannot stop itself via this API;
+ * self-exit is done by returning 0 from main().
+ *
+ * @param exec_env WASM execution environment
+ * @param name     Null-terminated app name
+ * @return 0 on success, negative Zephyr errno on failure
+ *   -EINVAL  empty/NULL name, or caller tried to stop self
+ *   -ENOENT  app not installed
+ *   -EPERM   capability not granted
+ */
+int akira_native_app_stop(wasm_exec_env_t exec_env, const char *name);
+
+/**
+ * @brief Start another app and signal this app to exit.
+ *
+ * Requires AKIRA_CAP_APP_SWITCH or AKIRA_CAP_APP_CONTROL.  Starts (or
+ * resumes) the target app; the calling WASM app must then return 0 from its
+ * own main() to complete the handoff.  The supervisor detects both events
+ * via the akira.lifecycle IPC topic.
+ *
+ * Typical usage:
+ * @code
+ *   int main(void) {
+ *       // ... game loop ...
+ *       app_switch("supervisor");  // start/resume supervisor
+ *       return 0;                  // clean exit triggers lifecycle event
+ *   }
+ * @endcode
+ *
+ * @param exec_env WASM execution environment
+ * @param name     Target app name
+ * @return 0 on success (caller should return from main), negative on error
+ */
+int akira_native_app_switch(wasm_exec_env_t exec_env, const char *name);
 
 #ifdef __cplusplus
 }

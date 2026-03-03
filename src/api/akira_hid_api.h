@@ -62,6 +62,19 @@ int akira_native_hid_action_register(wasm_exec_env_t exec_env,
                                      int32_t keycode);
 int akira_native_hid_action_trigger(wasm_exec_env_t exec_env, const char *name);
 
+/* ── Transport ────────────────────────────────────────────────────────────── */
+/** @brief Select HID transport (0=none, 1=BLE, 2=USB). Requires HID cap. */
+int akira_native_hid_set_transport(wasm_exec_env_t exec_env, int32_t transport);
+
+/** @brief Set device type bitmask before enabling HID (KEYBOARD=1, GAMEPAD=2,
+ *         MOUSE=4). Returns -EBUSY if HID is already enabled. Requires HID cap. */
+int akira_native_hid_set_device_types(wasm_exec_env_t exec_env, int32_t types);
+
+/** @brief One-shot setup: set transport + device types + enable.
+ *         Equivalent to calling hid_set_transport, hid_set_device_types,
+ *         and hid_enable in sequence. Requires HID cap. */
+int akira_native_hid_init(wasm_exec_env_t exec_env, int32_t transport, int32_t types);
+
 #ifdef __cplusplus
 }
 #endif

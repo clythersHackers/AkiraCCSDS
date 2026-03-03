@@ -25,6 +25,10 @@
 
 #if defined(CONFIG_AKIRA_BT_SHELL)
 #include "bt_shell.h"
+
+#ifdef CONFIG_BT_BAS
+#include <zephyr/bluetooth/services/bas.h>
+#endif
 #endif
 
 LOG_MODULE_REGISTER(bt_manager, CONFIG_AKIRA_LOG_LEVEL);
@@ -158,6 +162,15 @@ static void security_changed_cb(struct bt_conn *conn, bt_security_t level,
     if (err)
     {
         LOG_WRN("Security failed: %s level %d err %d", addr, level, err);
+
+        if (err == BT_SECURITY_ERR_AUTH_FAIL || err == BT_SECURITY_ERR_PIN_OR_KEY_MISSING)
+        {
+            /* Stale bond — LTK no longer matches. Wipe it and force a fresh pair
+             * so the peer does not need to manually "Forget Device". */
+            LOG_INF("Stale bond for %s — wiping and requesting re-pair", addr);
+            bt_unpair(BT_ID_DEFAULT, bt_conn_get_dst(conn));
+            bt_conn_set_security(conn, BT_SECURITY_L2 | BT_SECURITY_FORCE_PAIR);
+        }
         return;
     }
 
@@ -169,6 +182,41 @@ static void security_changed_cb(struct bt_conn *conn, bt_security_t level,
         notify_event(BT_EVENT_PAIRED, NULL);
     }
 }
+
+/* Pairing auth callbacks — NoInputNoOutput IO capability (just-works).
+ * pairing_confirm MUST be provided and call bt_conn_auth_pairing_confirm()
+ * otherwise Zephyr leaves the pairing request unanswered and iOS times out
+ * showing "Pairing Unsuccessful". */
+static void auth_pairing_confirm(struct bt_conn *conn)
+{
+    char addr[BT_ADDR_LE_STR_LEN];
+    bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
+    LOG_INF("Pairing confirm (just-works): %s — accepting", addr);
+    bt_conn_auth_pairing_confirm(conn);
+}
+
+static void auth_pairing_complete(struct bt_conn *conn, bool bonded)
+{
+    char addr[BT_ADDR_LE_STR_LEN];
+    bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
+    LOG_INF("Pairing complete: %s bonded=%d", addr, bonded);
+}
+
+static void auth_pairing_failed(struct bt_conn *conn, enum bt_security_err reason)
+{
+    char addr[BT_ADDR_LE_STR_LEN];
+    bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
+    LOG_WRN("Pairing failed: %s reason %d", addr, reason);
+}
+
+static const struct bt_conn_auth_cb auth_callbacks = {
+    .pairing_confirm = auth_pairing_confirm,
+};
+
+static const struct bt_conn_auth_info_cb auth_info_callbacks = {
+    .pairing_complete = auth_pairing_complete,
+    .pairing_failed   = auth_pairing_failed,
+};
 #endif /* CONFIG_BT_SMP || CONFIG_BT_CLASSIC */
 
 static struct bt_conn_cb conn_callbacks = {
@@ -182,6 +230,8 @@ static struct bt_conn_cb conn_callbacks = {
 /* Advertising data */
 static const struct bt_data ad[] = {
     BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
+    BT_DATA_BYTES(BT_DATA_GAP_APPEARANCE,
+                  BT_BYTES_LIST_LE16(0x03C1)), /* HID Keyboard */
     BT_DATA_BYTES(BT_DATA_UUID16_ALL,
                   BT_UUID_16_ENCODE(BT_UUID_HIDS_VAL),
                   BT_UUID_16_ENCODE(BT_UUID_BAS_VAL)),
@@ -240,7 +290,17 @@ int bt_manager_init(const bt_config_t *config)
         settings_load();
     }
 
+#ifdef CONFIG_BT_BAS
+    /* HOGP mandates Battery Service; report 100% so iOS completes HID enumeration */
+    bt_bas_set_battery_level(100);
+#endif
+
     bt_conn_cb_register(&conn_callbacks);
+
+#if defined(CONFIG_BT_SMP) || defined(CONFIG_BT_CLASSIC)
+    bt_conn_auth_cb_register(&auth_callbacks);
+    bt_conn_auth_info_cb_register(&auth_info_callbacks);
+#endif
 
     bt_mgr.state = BT_STATE_READY;
     bt_mgr.initialized = true;

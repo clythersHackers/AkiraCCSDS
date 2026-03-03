@@ -378,6 +378,10 @@ static int lr_repeat        = 0;
 static int soft_drop_active = 0;
 static int pause_requested  = 0;
 
+/* App-switch / restart flags — set by pause menu, acted on by main() */
+static int g_exit_to_supervisor = 0;
+static int g_restart_game       = 0;
+
 static void handle_buttons(void) {
     int up       = gpio_read(BTN_UP);
     int down     = gpio_read(BTN_DOWN);
@@ -467,7 +471,81 @@ static void init_game(void) {
     draw_next(1);
     draw_stats(1);
 }
+/* ── In-game pause menu ─────────────────────────────────────────────────── */
+#define MENU_BACK    0
+#define MENU_EXIT    1
+#define MENU_RESTART 2
+#define MENU_ITEMS   3
 
+static const char *MENU_LABELS[MENU_ITEMS] = {
+    "[   Go Back   ]",
+    "[Exit to Menu ]",
+    "[Restart Game ]",
+};
+
+/**
+ * @brief Show the pause overlay and wait for a menu selection.
+ *
+ * Uses UP/DOWN for navigation and A or B to confirm.  Settings button
+ * acts as a quick "Go Back" shortcut.
+ *
+ * @return MENU_BACK, MENU_EXIT, or MENU_RESTART
+ */
+static int show_pause_menu(void)
+{
+    /* Overlay dimensions — centred on the board column */
+    const int ITEM_H = 22;
+    const int PAD    = 6;
+    const int mw     = BOARD_PX_W - 8;
+    const int mh     = PAD + 16 + MENU_ITEMS * ITEM_H + PAD;
+    const int mx     = BOARD_X + 4;
+    const int my     = BOARD_Y + (BOARD_PX_H - mh) / 2;
+
+    int cur = MENU_BACK;
+
+    /* Debounce: wait for the settings button to be released before reading
+     * any new presses. */
+    while (gpio_read(BTN_SETTINGS)) delay(10000);
+    delay(50000);
+
+    int prev_s = 0, prev_u = 0, prev_d = 0, prev_a = 0, prev_b = 0;
+    int redraw = 1;
+
+    while (1) {
+        if (redraw) {
+            /* Outer border */
+            display_rect(mx - 2, my - 2, mw + 4, mh + 4, COL_BORDER);
+            /* Background */
+            display_rect(mx, my, mw, mh, 0x0821);
+            /* Title */
+            display_text(mx + PAD, my + PAD, "PAUSED", COL_TITLE);
+            /* Items */
+            for (int i = 0; i < MENU_ITEMS; i++) {
+                int iy     = my + PAD + 18 + i * ITEM_H;
+                uint32_t bg = (i == cur) ? 0x001F : 0x0821; /* blue / dark */
+                uint32_t fg = (i == cur) ? 0xFFFF : 0xC618; /* white / light-gray */
+                display_rect(mx, iy - 2, mw, ITEM_H - 2, bg);
+                display_text(mx + PAD, iy, MENU_LABELS[i], fg);
+            }
+            display_flush();
+            redraw = 0;
+        }
+
+        int s = gpio_read(BTN_SETTINGS);
+        int u = gpio_read(BTN_UP);
+        int d = gpio_read(BTN_DOWN);
+        int a = gpio_read(BTN_A);
+        int b = gpio_read(BTN_B);
+
+        if (s && !prev_s)  { return MENU_BACK; }  /* quick-exit shortcut */
+        if (u && !prev_u)  { cur = (cur > 0) ? cur - 1 : MENU_ITEMS - 1; redraw = 1; }
+        if (d && !prev_d)  { cur = (cur < MENU_ITEMS - 1) ? cur + 1 : 0; redraw = 1; }
+        if ((a && !prev_a) || (b && !prev_b)) { return cur; }
+
+        prev_s = s;  prev_u = u;  prev_d = d;  prev_a = a;  prev_b = b;
+        delay(20000);
+    }
+}
 /* ── Game loop ───────────────────────────────────────────────────────── */
 static void game_loop(void) {
     uint32_t drop_acc = 0;
@@ -475,24 +553,19 @@ static void game_loop(void) {
     while (!g.game_over) {
         handle_buttons();
 
-        /* SETTINGS pressed — enter pause */
+        /* SETTINGS pressed — open pause menu */
         if (pause_requested) {
             pause_requested = 0;
-            /* Overlay "PAUSED" centred on the board */
-            int oy = BOARD_Y + (BOARD_PX_H - 14) / 2;
-            display_rect(BOARD_X, oy - 4, BOARD_PX_W, 22, COL_BG);
-            display_text(BOARD_X + (BOARD_PX_W - 42) / 2, oy, "PAUSED", COL_VALUE);
-            display_flush();
-            /* Wait for SETTINGS press again */
-            int sprev = 1;  /* still held from first press */
-            while (1) {
-                int s = gpio_read(BTN_SETTINGS);
-                if (s && !sprev) break;
-                sprev = s;
-                delay(20000);
+            int choice = show_pause_menu();
+            if (choice == MENU_EXIT) {
+                g_exit_to_supervisor = 1;
+                return; /* game_loop returns; main() handles the switch */
             }
-            delay(100000);
-            /* Force full redraw to wipe the overlay */
+            if (choice == MENU_RESTART) {
+                g_restart_game = 1;
+                return; /* game_loop returns; main() re-inits and loops */
+            }
+            /* MENU_BACK — force full redraw to wipe the overlay */
             g.board_changed = 1;
             g.piece_moved   = 1;
         }
@@ -559,8 +632,28 @@ int main(void)
     delay(100000);  /* debounce */
 
     printf("Starting game...");
-    init_game();
-    game_loop();
+
+    /* Game loop with restart and exit-to-supervisor support */
+    while (1) {
+        g_restart_game       = 0;
+        g_exit_to_supervisor = 0;
+        init_game();
+        game_loop();
+
+        if (g_exit_to_supervisor) {
+            /* Start (or resume) supervisor then exit cleanly.
+             * Supervisor detects the lifecycle events for both this app
+             * stopping and itself resuming, then redraws its launcher. */
+            app_switch("supervisor");
+            return 0;
+        }
+        if (g_restart_game) {
+            seed++; /* Different RNG seed on each restart */
+            rng_seed(seed);
+            continue;
+        }
+        break; /* Normal game over */
+    }
 
     /* Game over screen */
     display_clear(COL_BG);

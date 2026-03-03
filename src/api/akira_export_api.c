@@ -62,10 +62,12 @@ bool akira_register_native_apis()
         #endif
 
         #ifdef CONFIG_AKIRA_WASM_BT_SHELL
-        {"bt_shell_print",     (void *)akira_native_bt_shell_send,       "(i$)i",  NULL},
-        {"bt_shell_send_data", (void *)akira_native_bt_shell_send_data,  "(i*i)i", NULL},
+        {"bt_shell_print",     (void *)akira_native_bt_shell_send,       "($)i",   NULL},
+        {"bt_shell_send_data", (void *)akira_native_bt_shell_send_data,  "(ii)i",  NULL},
         {"bt_shell_is_ready",  (void *)akira_native_bt_shell_is_ready,   "()i",    NULL},
-        {"bt_shell_recv",      (void *)akira_native_bt_shell_recv,       "(*~i)i", NULL},
+        {"bt_shell_recv",      (void *)akira_native_bt_shell_recv,       "(iii)i", NULL},
+        {"bt_adv_start",       (void *)akira_native_bt_adv_start,        "()i",    NULL},
+        {"bt_adv_stop",        (void *)akira_native_bt_adv_stop,         "()i",    NULL},
         #endif
 
         #ifdef CONFIG_AKIRA_WASM_HID
@@ -89,15 +91,20 @@ bool akira_register_native_apis()
         {"hid_send_raw_report",    (void *)akira_native_hid_send_raw_report,    "(i*~)i", NULL},
         {"hid_action_register",    (void *)akira_native_hid_action_register,    "($ii)i", NULL},
         {"hid_action_trigger",     (void *)akira_native_hid_action_trigger,     "($)i",   NULL},
+        {"hid_set_transport",      (void *)akira_native_hid_set_transport,      "(i)i",   NULL},
+        {"hid_set_device_types",   (void *)akira_native_hid_set_device_types,   "(i)i",   NULL},
+        {"hid_init",               (void *)akira_native_hid_init,               "(ii)i",  NULL},
         #endif
 
         #ifdef CONFIG_AKIRA_WASM_LIFECYCLE
+        {"app_get_status",    (void *)akira_native_app_get_status,    "($)i",   NULL},
+        {"app_list",          (void *)akira_native_app_list,          "(ii)i",  NULL},
+        {"app_get_self_name", (void *)akira_native_app_get_self_name, "(ii)i",  NULL},
+        /* Write-control — requires AKIRA_CAP_APP_CONTROL */
         {"app_start",         (void *)akira_native_app_start,         "($)i",   NULL},
         {"app_stop",          (void *)akira_native_app_stop,          "($)i",   NULL},
-        {"app_restart",       (void *)akira_native_app_restart,       "($)i",   NULL},
-        {"app_get_status",    (void *)akira_native_app_get_status,    "($)i",   NULL},
-        {"app_list",          (void *)akira_native_app_list,          "(*~)i",  NULL},
-        {"app_get_self_name", (void *)akira_native_app_get_self_name, "(*~)i",  NULL},
+        /* Lightweight handoff — requires AKIRA_CAP_APP_SWITCH or APP_CONTROL */
+        {"app_switch",        (void *)akira_native_app_switch,        "($)i",   NULL},
         #endif
 
         #ifdef CONFIG_AKIRA_WASM_IPC
@@ -133,6 +140,7 @@ bool akira_register_native_apis()
         {"pwm_set",     (void *)akira_native_pwm_set,     "(iii)i", NULL},
         {"pwm_disable", (void *)akira_native_pwm_disable, "(i)i",   NULL},
         #endif
+
     };
 
     return wasm_runtime_register_natives("env", native_syms, sizeof(native_syms) / sizeof(NativeSymbol));

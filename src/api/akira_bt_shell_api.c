@@ -15,6 +15,10 @@
 #include "bt_shell.h"
 #endif
 
+#if defined(CONFIG_BT)
+#include "connectivity/bluetooth/bt_manager.h"
+#endif
+
 LOG_MODULE_REGISTER(akira_bt_shell_api, LOG_LEVEL_INF);
 
 /* Core BT Shell API functions (no security checks) */
@@ -132,4 +136,31 @@ int akira_native_bt_shell_recv(wasm_exec_env_t exec_env,
     }
 
     return akira_bt_shell_recv(ptr, len, timeout_ms);
+}
+
+int akira_native_bt_adv_start(wasm_exec_env_t exec_env)
+{
+    /* Allow both HID apps (need BLE for HID) and BT shell apps */
+    uint32_t caps = akira_security_get_cap_mask(exec_env);
+    if (!(caps & AKIRA_CAP_BT_SHELL) && !(caps & AKIRA_CAP_HID)) {
+        return -EPERM;
+    }
+#if defined(CONFIG_BT)
+    return bt_manager_start_advertising();
+#else
+    return -ENOTSUP;
+#endif
+}
+
+int akira_native_bt_adv_stop(wasm_exec_env_t exec_env)
+{
+    uint32_t caps = akira_security_get_cap_mask(exec_env);
+    if (!(caps & AKIRA_CAP_BT_SHELL) && !(caps & AKIRA_CAP_HID)) {
+        return -EPERM;
+    }
+#if defined(CONFIG_BT)
+    return bt_manager_stop_advertising();
+#else
+    return -ENOTSUP;
+#endif
 }

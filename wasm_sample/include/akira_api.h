@@ -136,7 +136,7 @@ extern "C" {
  * =============================================================================
  * LOGGING API
  * =============================================================================
- * Required capability: input.read
+ * Required capability: none
  */
 
 /**
@@ -516,11 +516,356 @@ extern int bt_shell_print(const char *message);
 extern int bt_shell_send_data(uint32_t data_ptr, uint32_t len);
 
 /**
- * @brief Check if Bluetooth shell is ready
+ * @brief Check if Bluetooth shell is ready (notifications enabled by peer)
  * 
  * @return 1 if ready, 0 if not ready, negative error code on failure
  */
 extern int bt_shell_is_ready(void);
+
+/**
+ * @brief Receive data from the Bluetooth shell RX ring buffer.
+ *
+ * Blocks for up to @p timeout_ms milliseconds waiting for incoming bytes.
+ * Pass -1 to block indefinitely, 0 for a non-blocking poll.
+ *
+ * Required capability: bt.shell
+ *
+ * @param buf        Destination buffer
+ * @param len        Buffer capacity in bytes
+ * @param timeout_ms Wait limit in ms (0 = non-blocking, -1 = forever)
+ * @return Bytes received on success, -EAGAIN if timed out with no data,
+ *         negative error code on failure
+ */
+extern int bt_shell_recv(uint8_t *buf, uint32_t len, int32_t timeout_ms);
+
+/**
+ * @brief Start BLE advertising so peers can connect.
+ * Required capability: bt_shell or hid
+ * @return 0 on success, negative error code on failure
+ */
+extern int bt_adv_start(void);
+
+/**
+ * @brief Stop BLE advertising.
+ * Required capability: bt_shell or hid
+ */
+extern int bt_adv_stop(void);
+
+/*
+ * =============================================================================
+ * HID API
+ * =============================================================================
+ * Required capability: hid
+ *
+ * HID keyboard modifier constants (combinable with |)
+ */
+#define HID_MOD_NONE        0x00
+#define HID_MOD_LEFT_CTRL   0x01
+#define HID_MOD_LEFT_SHIFT  0x02
+#define HID_MOD_LEFT_ALT    0x04
+#define HID_MOD_LEFT_GUI    0x08  /**< Windows / Cmd key */
+#define HID_MOD_RIGHT_CTRL  0x10
+#define HID_MOD_RIGHT_SHIFT 0x20
+#define HID_MOD_RIGHT_ALT   0x40
+#define HID_MOD_RIGHT_GUI   0x80
+
+/* HID mouse button masks */
+#define HID_MOUSE_BTN_LEFT   0x01
+#define HID_MOUSE_BTN_RIGHT  0x02
+#define HID_MOUSE_BTN_MIDDLE 0x04
+
+/* HID consumer / media usage codes */
+#define HID_CONSUMER_PLAY_PAUSE    0x00CD
+#define HID_CONSUMER_STOP          0x00B7
+#define HID_CONSUMER_NEXT_TRACK    0x00B5
+#define HID_CONSUMER_PREV_TRACK    0x00B6
+#define HID_CONSUMER_VOL_UP        0x00E9
+#define HID_CONSUMER_VOL_DOWN      0x00EA
+#define HID_CONSUMER_MUTE          0x00E2
+#define HID_CONSUMER_BRIGHTNESS_UP 0x006F
+#define HID_CONSUMER_BRIGHTNESS_DN 0x0070
+
+/* USB HID keyboard keycodes (HUT 1.4 table 10) */
+#define HID_KEY_A     0x04
+#define HID_KEY_B     0x05
+#define HID_KEY_C     0x06
+#define HID_KEY_S     0x16
+#define HID_KEY_GRAVE  0x35  /**< Backtick / grave; with SHIFT → tilde */
+#define HID_KEY_MINUS  0x2D  /**< - / _ */
+#define HID_KEY_PRTSCN 0x46  /**< Print Screen / SysRq */
+#define HID_KEY_ENTER  0x28
+#define HID_KEY_ESC   0x29
+#define HID_KEY_SPACE 0x2C
+
+/** @brief Enable HID subsystem. Must be called before other HID functions. */
+extern int hid_enable(void);
+
+/** @brief Disable HID subsystem. */
+extern int hid_disable(void);
+
+/**
+ * @brief Check whether a HID host is connected and subscribed.
+ * @return 1 connected, 0 not connected
+ */
+extern int hid_is_connected(void);
+
+/** @brief Press a keyboard key (USB HID keycode). */
+extern int hid_key_press(int32_t keycode);
+
+/** @brief Release a keyboard key. */
+extern int hid_key_release(int32_t keycode);
+
+/** @brief Release all keyboard keys at once. */
+extern int hid_key_release_all(void);
+
+/**
+ * @brief Type a null-terminated ASCII string as individual key events.
+ * Handles uppercase via Shift automatically.
+ */
+extern int hid_type_string(const char *str);
+
+/** @brief Press one or more gamepad buttons (bitmask). */
+extern int hid_gamepad_press(int32_t btn_mask);
+
+/** @brief Release gamepad buttons. */
+extern int hid_gamepad_release(int32_t btn_mask);
+
+/** @brief Set a gamepad analogue axis (-32768..32767). */
+extern int hid_gamepad_set_axis(int32_t axis, int32_t value);
+
+/** @brief Set gamepad D-pad direction (0=centre, 1-8=N/NE/E/SE/S/SW/W/NW). */
+extern int hid_gamepad_set_dpad(int32_t direction);
+
+/** @brief Zero all gamepad state. */
+extern int hid_gamepad_reset(void);
+
+/** @brief Move mouse by relative dx/dy (-127..127). */
+extern int hid_mouse_move(int32_t dx, int32_t dy);
+
+/** @brief Press a mouse button (HID_MOUSE_BTN_*). */
+extern int hid_mouse_btn_press(int32_t button);
+
+/** @brief Release a mouse button. */
+extern int hid_mouse_btn_release(int32_t button);
+
+/** @brief Scroll mouse wheel by delta (-127..127). */
+extern int hid_mouse_scroll(int32_t delta);
+
+/**
+ * @brief Send a consumer (media) key event (single shot).
+ * @param usage_code  HID_CONSUMER_* constant
+ */
+extern int hid_consumer_send(int32_t usage_code);
+
+/**
+ * @brief Send a raw HID report.
+ * @param report_id  HID report identifier
+ * @param data_ptr   Pointer to report payload
+ * @param len        Payload length (≤ 64 bytes)
+ */
+extern int hid_send_raw_report(int32_t report_id,
+                               const uint8_t *data_ptr, uint32_t len);
+
+/**
+ * @brief Register a named keyboard shortcut.
+ * @param name      Short identifier, e.g. "copy" (max 15 chars)
+ * @param modifier  Modifier bitmask (HID_MOD_* constants)
+ * @param keycode   USB HID keycode of the main key
+ */
+extern int hid_action_register(const char *name,
+                               int32_t modifier, int32_t keycode);
+
+/**
+ * @brief Trigger a previously registered named shortcut.
+ * @param name  Shortcut name passed to hid_action_register()
+ */
+extern int hid_action_trigger(const char *name);
+
+/**
+ * @brief Select HID transport.
+ * @param transport  0=none, 1=BLE, 2=USB
+ * Required capability: hid
+ */
+extern int hid_set_transport(int32_t transport);
+
+/** HID transport identifiers (pass to hid_set_transport()) */
+#define HID_TRANSPORT_NONE 0
+#define HID_TRANSPORT_BLE  1
+#define HID_TRANSPORT_USB  2
+
+/**
+ * @brief Set HID device type bitmask before calling hid_enable().
+ * @param types  Bitmask of HID_DEVICE_* flags.
+ *               Returns -EBUSY if called after hid_enable().
+ * Required capability: hid
+ */
+extern int hid_set_device_types(int32_t types);
+
+/** HID device type bitmask flags (pass to hid_set_device_types() or hid_init()) */
+#define HID_DEVICE_KEYBOARD 0x01  /**< Standard keyboard + media keys */
+#define HID_DEVICE_GAMEPAD  0x02  /**< Gamepad / joystick */
+#define HID_DEVICE_MOUSE    0x04  /**< Mouse with relative movement */
+#define HID_DEVICE_COMBO    0x07  /**< All device types combined (keyboard + gamepad + mouse) */
+
+/**
+ * @brief One-shot HID setup: select transport, set device types, and enable.
+ *
+ * Replaces the three-call sequence hid_set_transport + hid_set_device_types + hid_enable.
+ * Use HID_DEVICE_COMBO (0x07) to enable all report types.
+ *
+ * @param transport    HID_TRANSPORT_BLE or HID_TRANSPORT_USB
+ * @param device_types Bitmask of HID_DEVICE_* flags, e.g. HID_DEVICE_COMBO
+ * @return 0 on success, negative errno on failure
+ * Required capability: hid
+ */
+extern int hid_init(int transport, int device_types);
+
+/*
+ * =============================================================================
+ * APP LIFECYCLE API
+ * =============================================================================
+ * Required capability: app.control  (elevated — must not be granted to
+ *                                    untrusted apps)
+ *
+ * App state codes returned by app_get_status():
+ */
+#define APP_STATE_NEW       0
+#define APP_STATE_INSTALLED 1
+#define APP_STATE_RUNNING   2
+#define APP_STATE_STOPPED   3
+#define APP_STATE_ERROR     4
+#define APP_STATE_FAILED    5
+
+/**
+ * @brief Get the current state of an installed app.
+ * @return APP_STATE_* constant, or negative error code
+ */
+extern int app_get_status(const char *name);
+
+/**
+ * @brief List all installed apps into a buffer.
+ *
+ * Writes newline-separated "name:STATE" entries, e.g.:
+ * "bt_echo:INSTALLED\nmacro_pad:RUNNING\n"
+ *
+ * @param buf      Destination buffer
+ * @param buf_len  Buffer capacity
+ * @return Number of apps written, negative on error
+ */
+extern int app_list(uint8_t *buf, uint32_t buf_len);
+
+/**
+ * @brief Write this app's own name into @p buf.
+ * @param buf      Destination buffer (at least 32 bytes)
+ * @param buf_len  Buffer capacity
+ * @return Length of the name, negative on error
+ */
+extern int app_get_self_name(uint8_t *buf, uint32_t buf_len);
+
+/**
+ * @brief Start an installed app by name.
+ *
+ * Requires capability: "app.control"
+ *
+ * @param name  Null-terminated app name
+ * @return 0 on success, negative errno on failure
+ *   -ENOENT  app not installed
+ *   -EBUSY   max concurrent apps already running
+ *   -EPERM   capability not granted
+ */
+extern int app_start(const char *name);
+
+/**
+ * @brief Stop a running app by name.
+ *
+ * Requires capability: "app.control"
+ * An app cannot stop itself; use return 0 from main() for self-exit.
+ *
+ * @param name  Null-terminated app name
+ * @return 0 on success, negative errno on failure
+ */
+extern int app_stop(const char *name);
+
+/**
+ * @brief Start another app and signal this app to exit (lightweight handoff).
+ *
+ * Requires capability: "app.switch" OR "app.control"
+ *
+ * Starts (or resumes) the target app.  The calling app must then
+ * return 0 from its own main() to complete the handoff.  The supervisor
+ * detects both events via the "akira.lifecycle" IPC topic.
+ *
+ * Typical usage:
+ * @code
+ *   app_switch("supervisor");
+ *   return 0;   // trigger clean exit -> lifecycle event -> supervisor redraws
+ * @endcode
+ *
+ * @param name  Target app name
+ * @return 0 on success (caller must return from main), negative on error
+ */
+extern int app_switch(const char *name);
+
+/**
+ * @brief Lifecycle event payload published on "akira.lifecycle" IPC topic.
+ *
+ * Subscribe to "akira.lifecycle" with msg_subscribe() and receive events
+ * with msg_recv() / msg_try_recv() into a buffer of this size.
+ *
+ * state values match APP_STATE_* constants defined above.
+ */
+typedef struct {
+    char name[32]; /**< App name (null-terminated) */
+    int  state;    /**< New state: APP_STATE_* constant */
+} akira_lifecycle_event_t;
+
+/*
+ * =============================================================================
+ * IPC PUB/SUB API
+ * =============================================================================
+ * Required capability: ipc
+ */
+
+/** @brief Subscribe to a named topic. */
+extern int msg_subscribe(const char *topic);
+
+/** @brief Unsubscribe from a named topic. */
+extern int msg_unsubscribe(const char *topic);
+
+/**
+ * @brief Publish a message to all subscribers.
+ * @param topic     Topic name
+ * @param data_ptr  Pointer to payload buffer
+ * @param len       Payload length (≤ CONFIG_AKIRA_IPC_MSG_MAX_SIZE = 256)
+ * @return Number of subscribers that received the message
+ */
+extern int msg_publish(const char *topic,
+                       const uint8_t *data_ptr, uint32_t len);
+
+/**
+ * @brief Receive the next message from a subscribed topic.
+ * @param topic       Topic name
+ * @param buf_ptr     Destination buffer
+ * @param buf_len     Buffer capacity
+ * @param timeout_ms  0 = non-blocking, -1 = wait forever, else ms limit
+ * @return Bytes received, -EAGAIN on timeout, negative on error
+ */
+extern int msg_recv(const char *topic,
+                    uint8_t *buf_ptr, uint32_t buf_len,
+                    int32_t timeout_ms);
+
+/**
+ * @brief Non-blocking receive (equivalent to msg_recv(..., 0)).
+ * @return Bytes received, -EAGAIN if nothing pending
+ */
+extern int msg_try_recv(const char *topic,
+                        uint8_t *buf_ptr, uint32_t buf_len);
+
+/**
+ * @brief Return the number of pending messages in a subscription queue.
+ * @return Count ≥ 0, or -ENOENT if not subscribed
+ */
+extern int msg_pending(const char *topic);
 
 /*
  * =============================================================================

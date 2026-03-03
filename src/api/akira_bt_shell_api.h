@@ -22,4 +22,10 @@ int akira_native_bt_shell_send_data(wasm_exec_env_t exec_env, uint32_t data_ptr,
 int akira_native_bt_shell_is_ready(wasm_exec_env_t exec_env);
 int akira_native_bt_shell_recv(wasm_exec_env_t exec_env, uint32_t buf_ptr, uint32_t len, int32_t timeout_ms);
 
+/** @brief Start BLE advertising. Requires bt_shell capability. */
+int akira_native_bt_adv_start(wasm_exec_env_t exec_env);
+
+/** @brief Stop BLE advertising. Requires bt_shell capability. */
+int akira_native_bt_adv_stop(wasm_exec_env_t exec_env);
+
 #endif /* AKIRA_BT_SHELL_API_H */
