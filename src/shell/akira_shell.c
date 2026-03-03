@@ -1436,6 +1436,42 @@ SHELL_CMD_REGISTER(bt, &bt_cmds, "Bluetooth commands", NULL);
 #endif /* CONFIG_BT */
 
 #ifdef CONFIG_WIFI
+/* Scan-shell statics — set before issuing the scan request */
+static K_SEM_DEFINE(scan_done_sem, 0, 1);
+static struct net_mgmt_event_callback scan_shell_cb;
+static const struct shell *scan_sh_ctx;
+static int scan_result_count;
+
+static void wifi_scan_shell_handler(struct net_mgmt_event_callback *cb,
+                                    uint32_t event, struct net_if *iface)
+{
+    ARG_UNUSED(iface);
+
+    if (event == NET_EVENT_WIFI_SCAN_RESULT) {
+        const struct wifi_scan_result *entry =
+            (const struct wifi_scan_result *)cb->info;
+        if (!entry || !scan_sh_ctx) {
+            return;
+        }
+
+        const char *sec;
+        switch (entry->security) {
+        case WIFI_SECURITY_TYPE_NONE:    sec = "Open";     break;
+        case WIFI_SECURITY_TYPE_WPA_PSK: sec = "WPA-PSK";  break;
+        case WIFI_SECURITY_TYPE_PSK:     sec = "WPA2-PSK"; break;
+        case WIFI_SECURITY_TYPE_SAE:     sec = "WPA3-SAE"; break;
+        default:                         sec = "Unknown";   break;
+        }
+
+        shell_print(scan_sh_ctx, "  %-32.*s  CH %3d  %4d dBm  %s",
+                    entry->ssid_length, entry->ssid,
+                    entry->channel, entry->rssi, sec);
+        scan_result_count++;
+    } else if (event == NET_EVENT_WIFI_SCAN_DONE) {
+        k_sem_give(&scan_done_sem);
+    }
+}
+
 /* WiFi status command */
 static int cmd_wifi_status(const struct shell *sh, size_t argc, char **argv)
 {
@@ -1545,22 +1581,44 @@ static int cmd_wifi_scan(const struct shell *sh, size_t argc, char **argv)
     ARG_UNUSED(argv);
 
     struct net_if *iface = net_if_get_default();
-    if (!iface)
-    {
+    if (!iface) {
         shell_print(sh, "No network interface available");
         return -ENODEV;
     }
 
-    shell_print(sh, "Starting WiFi scan...");
+    /* Set up per-scan state */
+    scan_sh_ctx = sh;
+    scan_result_count = 0;
+    k_sem_reset(&scan_done_sem);
+
+    net_mgmt_init_event_callback(&scan_shell_cb, wifi_scan_shell_handler,
+                                 NET_EVENT_WIFI_SCAN_RESULT |
+                                 NET_EVENT_WIFI_SCAN_DONE);
+    net_mgmt_add_event_callback(&scan_shell_cb);
+
+    shell_print(sh, "\n  %-32s  %-5s  %-9s  %s", "SSID", "CH", "RSSI", "Security");
+    shell_print(sh, "  %-32s  %-5s  %-9s  %s",
+                "--------------------------------", "-----", "---------", "--------");
 
     int ret = net_mgmt(NET_REQUEST_WIFI_SCAN, iface, NULL, 0);
-    if (ret)
-    {
+    if (ret) {
+        net_mgmt_del_event_callback(&scan_shell_cb);
+        scan_sh_ctx = NULL;
         shell_print(sh, "WiFi scan failed: %d", ret);
         return ret;
     }
 
-    shell_print(sh, "Scan started. Results will appear in the logs.");
+    /* Block until done or 5 s timeout */
+    ret = k_sem_take(&scan_done_sem, K_SECONDS(5));
+    net_mgmt_del_event_callback(&scan_shell_cb);
+    scan_sh_ctx = NULL;
+
+    if (ret == -EAGAIN) {
+        shell_print(sh, "\nScan timed out (%d network(s) found so far)", scan_result_count);
+        return -ETIMEDOUT;
+    }
+
+    shell_print(sh, "\nFound %d network(s)", scan_result_count);
     return 0;
 }
 #endif /* CONFIG_WIFI */
