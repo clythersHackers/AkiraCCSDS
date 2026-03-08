@@ -14,7 +14,7 @@ bool akira_register_native_apis()
 {   
     static NativeSymbol native_syms[] = {
         #ifdef CONFIG_AKIRA_WASM_API
-        {"printf", (void *)akira_native_printf, "($)i", NULL},
+        {"printf_native", (void *)akira_native_printf, "($)i", NULL},
         {"delay", (void *)akira_native_delay, "(i)i", NULL},
         #endif
 

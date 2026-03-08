@@ -50,10 +50,8 @@ int main(void)
     /* 1. Open a TCP socket */
     int h = net_open(NET_TYPE_TCP);
     if (h < 0) {
-        printf("net_open failed: %d", h);
         return h;
     }
-    printf("Socket handle: %d", h);
 
     /* 2. Bind TX / RX rings */
     if (net_tx_bind(h, tx_ring, sizeof(tx_ring)) < 0 ||
@@ -64,8 +62,12 @@ int main(void)
     }
 
     /* 3. Connect (async — DNS + connect on host background thread) */
-    printf("Connecting to " ECHO_HOST ":%d ...", ECHO_PORT);
-    if (net_connect(h, ECHO_HOST, ECHO_PORT) < 0) {
+    printf("Connecting to " );
+    printf(ECHO_HOST);
+    printf( ": ...");
+    printf("ECHO_PORT");
+    if (net_connect(h, ECHO_HOST, ECHO_PORT) < 0)
+    {
         printf("net_connect failed");
         net_close(h);
         return -1;
@@ -82,7 +84,7 @@ int main(void)
                 break;
             }
             if (evt[0] == NET_EVT_ERROR) {
-                printf("Connection error (errno=%d)", (int)(evt[2] | (evt[3] << 8)));
+                printf("Connection error (errno=)");
                 net_close(h);
                 return -1;
             }
@@ -99,14 +101,15 @@ int main(void)
 
     /* 5. Write message into TX ring and flush */
     int ret = net_ring_write(tx_ring, sizeof(tx_ring),
-                             (const uint8_t *)MSG, (int)strlen(MSG));
+                             (const uint8_t *)MSG, 27);
     if (ret < 0) {
         printf("TX ring write failed (ring full?)");
         net_close(h);
         return -1;
     }
     net_tx_flush(h);
-    printf("Sent: %s", MSG);
+    printf("Sent: ");
+    printf(MSG);
 
     /* 6. Poll for NET_EVT_DATA_READY then read from RX ring */
     for (int i = 0; i < POLL_TRIES; i++) {
@@ -118,7 +121,7 @@ int main(void)
                                          reply, sizeof(reply) - 1);
                 if (rlen > 0) {
                     reply[rlen] = '\0';
-                    printf("Echoed: %s", (char *)reply);
+                    printf("Echoed:");
                 }
                 break;
             }

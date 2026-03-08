@@ -21,7 +21,6 @@
  */
 
 #include "include/akira_api.h"
-#include <stdint.h>
 
 /* ---- Service / Characteristic UUIDs (custom 128-bit) ---- */
 #define LED_SERVICE_UUID  "19B10000-E8F2-537E-4F6C-D104768A1214"
@@ -38,7 +37,7 @@ int main(void)
     /* ---- 1. Create service and characteristic ---- */
     int svc = ble_service_create(LED_SERVICE_UUID);
     if (svc < 0) {
-        printf("ble: service_create failed\n");
+        printf("ble: service_create failed");
         return svc;
     }
 
@@ -47,7 +46,7 @@ int main(void)
                                   BLE_PROP_READ | BLE_PROP_WRITE,
                                   1);
     if (sw_char < 0) {
-        printf("ble: char_create failed\n");
+        printf("ble: char_create failed");
         return sw_char;
     }
 
@@ -62,12 +61,12 @@ int main(void)
     /* ---- 4. Start BLE (lazy-inits the BT stack in BLE_APP mode) ---- */
     int ret = ble_init();
     if (ret < 0) {
-        printf("ble: init failed (%d) — HID mode active?\n", ret);
+        printf("ble: init failed (%d) — HID mode active?");
         return ret;
     }
 
     ble_advertise();
-    printf("ble_led: advertising, waiting for connection...\n");
+    printf("ble_led: advertising, waiting for connection...");
 
     /* ---- 5. Initialise LED pin as output, default off ---- */
     gpio_configure(LED_PIN, GPIO_OUTPUT | GPIO_OUTPUT_INIT_LOW);
@@ -80,10 +79,10 @@ int main(void)
         int evt = ble_event_pop(evt_buf, sizeof(evt_buf));
 
         if (evt == BLE_EVT_CONNECTED) {
-            printf("ble_led: peer connected\n");
+            printf("ble_led: peer connected");
 
         } else if (evt == BLE_EVT_DISCONNECTED) {
-            printf("ble_led: peer disconnected — re-advertising\n");
+            printf("ble_led: peer disconnected — re-advertising");
             ble_advertise();
 
         } else if (evt == BLE_EVT_CHAR_WRITTEN) {
@@ -97,7 +96,11 @@ int main(void)
             if (data_len >= 1) {
                 led_state = evt_buf[4];
                 gpio_write(LED_PIN, led_state ? 1 : 0);
-                printf("ble_led: LED %s\n", led_state ? "ON" : "OFF");
+                printf("ble_led: LED ");
+                if(led_state)
+                    printf("ON");
+                else
+                    printf("OFF");
             }
         }
 

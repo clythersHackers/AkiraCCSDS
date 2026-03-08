@@ -18,7 +18,6 @@
  */
 
 #include "include/akira_api.h"
-#include <string.h>
 
 /* Pass/fail accounting */
 static int s_pass = 0;

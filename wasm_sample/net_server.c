@@ -18,7 +18,7 @@
  *   echo "Hello from client" | ncat 127.0.0.1 9000
  */
 
-#include "akira_api.h"
+#include "include/akira_api.h"
 
 /* ---- tunables ------------------------------------------------------------- */
 #define SRV_PORT           9000
@@ -40,9 +40,7 @@ static int client_count;
 
 static void delay_ms(int ms)
 {
-    for (volatile int i = 0; i < ms * 2000; i++) {
-        ;
-    }
+    delay((uint32_t)ms * 1000u); /* convert ms → µs */
 }
 
 static int alloc_slot(void)

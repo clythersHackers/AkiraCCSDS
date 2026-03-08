@@ -58,11 +58,16 @@ build_app() {
         echo "  Found manifest: ${app_name}.json"
     fi
 
-    # Compile with WASI SDK (wasm32-wasi gives full libc; WAMR handles WASI at runtime).
+    # Compile with WASI SDK using bare wasm32 target (no WASI init code).
+    # wasm32-unknown-unknown + -nostdlib avoids the WASI libc startup sequence
+    # (fd_fdstat_get etc.) that crashes on startup because WAMR_BUILD_LIBC_WASI=0
+    # on this platform.  libc functions (printf, memcpy, …) are provided at
+    # runtime by WAMR's built-in libc (WAMR_BUILD_LIBC_BUILTIN=1 in CMakeLists).
     "${WASI_SDK}/bin/clang" \
-        --target=wasm32-wasi \
-        --sysroot="${WASI_SDK}/share/wasi-sysroot" \
+        -target wasm32-unknown-unknown \
+        -nostdlib \
         -fvisibility=hidden \
+        -Wl,--no-entry \
         -Wl,--allow-undefined \
         -Wl,--strip-all \
         -I"${WASM_APPS_DIR}/include" \

@@ -17,11 +17,7 @@
 #define AKIRA_API_H
 
 #include <stdint.h>
-#include <stdbool.h>
 #include <stdarg.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -151,7 +147,70 @@ extern "C" {
  * @param message Null-terminated string message to log
  * @return 0 on success, negative error code on failure
  */
-/* printf is provided by <stdio.h> with the standard variadic signature */
+extern int printf_native(const char *message);
+
+/* String helpers — no stdlib required */
+static inline int strlen(const char *s) {
+    int n = 0;
+    while (s[n]) n++;
+    return n;
+}
+
+static inline int strcmp(const char *a, const char *b) {
+    while (*a && (*a == *b)) { a++; b++; }
+    return (unsigned char)*a - (unsigned char)*b;
+}
+
+// A simple integer-to-string helper since we have no libc
+static void itoa(int value, char *ptr) {
+    char temp[12];
+    int i = 0;
+    if (value == 0) { *ptr++ = '0'; *ptr = '\0'; return; }
+    if (value < 0) { *ptr++ = '-'; value = -value; }
+    while (value > 0) { temp[i++] = (value % 10) + '0'; value /= 10; }
+    while (i > 0) { *ptr++ = temp[--i]; }
+    *ptr = '\0';
+}
+
+// Your wrapper function inside WASM
+void printf(const char *fmt, ...) {
+    char buffer[256]; // The "baked" string buffer
+    char *p = buffer;
+    va_list args;
+    va_start(args, fmt);
+
+    for (const char *f = fmt; *f != '\0'; f++) {
+        if (*f == '\n' || *f == '\r') {
+            /* Skip newlines — the host logger adds its own line endings */
+            continue;
+        }
+        if (*f != '%') {
+            *p++ = *f;
+            continue;
+        }
+        f++; // Skip '%'
+        switch (*f) {
+            case 'd': {
+                itoa(va_arg(args, int), p);
+                while (*p) p++; // Move pointer to end of number
+                break;
+            }
+            case 's': {
+                char *s = va_arg(args, char *);
+                while (*s) *p++ = *s++;
+                break;
+            }
+            default: *p++ = *f; break;
+        }
+    }
+    *p = '\0';
+    va_end(args);
+
+    // Send the final, formatted string to the host
+    printf_native(buffer);
+}
+
+
 
 /**
  * @brief Delay execution for a specified number of microseconds
@@ -1586,6 +1645,7 @@ extern int power_wake_on_timer(int ms);
  * @return 0 always.
  */
 extern int power_set_low_power(int enable);
+
 
 #ifdef __cplusplus
 }
