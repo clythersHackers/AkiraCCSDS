@@ -6,7 +6,7 @@
 
 **High-Performance WebAssembly OS for Embedded Systems**
 
-[![Version](https://img.shields.io/badge/version-1.4.7-blue.svg)](VERSION)
+[![Version](https://img.shields.io/badge/version-1.4.9_Gl1tch-blue.svg)](VERSION)
 [![Zephyr](https://img.shields.io/badge/Zephyr-4.3.0-green.svg)](https://github.com/zephyrproject-rtos/zephyr)
 [![WAMR](https://img.shields.io/badge/WAMR-2.0-purple.svg)](https://github.com/bytecodealliance/wasm-micro-runtime)
 [![License](https://img.shields.io/badge/license-GPL%20v3-blue.svg)](LICENSE)

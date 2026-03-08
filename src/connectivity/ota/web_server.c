@@ -210,7 +210,7 @@ static const char html_page[] =
     "input[type=file]{background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:8px;color:#c9d1d9;font-size:13px;width:100%;margin-bottom:10px}"
     "input[type=text]{background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:8px;color:#c9d1d9;font-size:13px;width:100%;margin-bottom:10px}"
     "</style></head><body>"
-    "<div class='header'><h1> AkiraOS Web Dashboard</h1><div class='version'>AkiraOS v1.2.3</div></div>"
+    "<div class='header'><h1> AkiraOS Web Dashboard</h1><div class='version'>AkiraOS v1.4.9 Gl1tch</div></div>"
     "<div class='container'>"
     "<div class='grid'>"
     "<div class='panel'><h3> System Status</h3><div class='status-grid'>"

@@ -672,7 +672,7 @@ picocom -b 115200 /dev/ttyUSB0
 **Expected boot output:**
 ```
 *** Booting Zephyr OS build v4.3.0 ***
-[00:00:00.123,000] <inf> main: AkiraOS v1.4.7 starting...
+[00:00:00.123,000] <inf> main: AkiraOS v1.4.9 Gl1tch starting...
 [00:00:00.234,000] <inf> runtime: WAMR initialized (AOT enabled)
 [00:00:00.345,000] <inf> connectivity: WiFi stack ready
 [00:00:00.456,000] <inf> main: System initialized successfully
