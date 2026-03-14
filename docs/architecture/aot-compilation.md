@@ -8,9 +8,9 @@ AkiraOS includes AOT (Ahead-of-Time) compilation support through WAMR, enabling 
 
 ### Current State
 
-**✅ AOT Compiler Integration:** WAMR AOT support is compiled in for Xtensa/ESP32-S3  
-**📦 Default Mode:** Applications currently run in interpreter mode (.wasm bytecode)  
-**🚀 Available Capability:** AOT execution is ready to use when .aot files are provided
+**🚨 AOT Compilation Disabled by Default:** WAMR AOT support is currently disabled via `CONFIG_WAMR_AOT_SUPPORT=n` in `prj.conf`.
+**📦 Default Mode:** Applications run in interpreter mode (.wasm bytecode).
+**🚀 To Enable:** You must rebuild the project with AOT enabled in your Kconfig (`CONFIG_WAMR_AOT_SUPPORT=y`). When enabled, AOT execution is ready to use when `.aot` files are provided.
 
 **Key Point:** AOT is a **compilation option**, not a runtime mode. The system can load both .wasm (interpreted) and .aot (native) files.
 

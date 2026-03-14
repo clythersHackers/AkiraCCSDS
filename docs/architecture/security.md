@@ -120,31 +120,26 @@ Apps declare required capabilities in an embedded WASM custom section.
 
 **Embedded Manifest (Preferred):**
 ```wasm
-;; Custom section in .wasm file
-(custom "akira-manifest"
-  (name "sensor_logger")
-  (version "1.2.0")
-  (author "AkiraOS Team")
-  (capabilities "sensor" "fs_write" "display")
-  (memory_quota 81920)  ;; 80KB
-  (description "Logs sensor data to file")
+;; Custom section in .wasm file. Must be valid JSON.
+(custom ".akira.manifest"
+  "{\"name\": \"sensor_logger\", \"version\": \"1.2.0\", \"capabilities\": [\"sensor\", \"fs.write\", \"display\"], \"memory_quota\": 81920}"
 )
 ```
 
-**Fallback JSON (Deprecated):**
+**Fallback JSON:**
 ```json
 {
   "name": "sensor_logger",
   "version": "1.2.0",
-  "capabilities": ["sensor", "fs_write", "display"],
+  "capabilities": ["sensor", "fs.write", "display"],
   "memory_quota": 81920
 }
 ```
 
 **Manifest Parsing:**
-1. Try to extract embedded `akira-manifest` custom section
-2. If not found, look for `<app_name>.json` in same directory
-3. If neither found, use default minimal capabilities
+1. Try to extract embedded `.akira.manifest` custom section and parse JSON.
+2. If not found, look for `<app_name>.json` in same directory.
+3. If neither found, use default minimal capabilities.
 
 ## Threat Model
 

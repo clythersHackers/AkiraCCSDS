@@ -116,11 +116,11 @@ The Zephyr SDK provides cross-compilers for all supported architectures.
 ```bash
 cd ~
 
-# Download SDK (choose version 0.17.0 for Zephyr 4.3.0)
-wget https://github.com/zephyrproject-rtos/sdk-ng/releases/download/v0.17.0/zephyr-sdk-0.17.0_linux-x86_64.tar.xz
+# Download SDK (choose version 0.17.4 for Zephyr 4.3.0)
+wget https://github.com/zephyrproject-rtos/sdk-ng/releases/download/v0.17.4/zephyr-sdk-0.17.4_linux-x86_64.tar.xz
 
 # Extract (~2GB extracted)
-tar xvf zephyr-sdk-0.17.0_linux-x86_64.tar.xz
+tar xvf zephyr-sdk-0.17.4_linux-x86_64.tar.xz
 
 # Run setup script
 ```
@@ -315,12 +315,16 @@ uart:~$ help
 ### 2. Upload a WASM Application
 
 ```bash
-# On your PC, build a WASM app
-cd ~/akira-workspace/AkiraOS/wasm_sample
-./build_wasm_apps.sh
+# On your PC, build a WASM app either using the build script:
+cd ~/akira-workspace/AkiraOS/AkiraSDK/wasm_apps
+./build.sh hello_world
+
+# Or explicitly using Make (requires WASI SDK installed):
+cd ~/akira-workspace/AkiraOS/AkiraSDK/wasm_apps/hello_world
+make 
 
 # Upload via HTTP (ESP32 must be connected to WiFi)
-curl -X POST -F "file=@example_app.wasm" http://<esp32-ip>/upload
+curl -X POST -F "file=@hello_world.wasm" http://<esp32-ip>/upload
 ```
 
 ### 3. Perform OTA Update

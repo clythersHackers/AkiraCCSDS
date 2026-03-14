@@ -38,6 +38,20 @@ uart:~$ kernel version
 
 If new firmware fails to boot, MCUboot automatically rolls back to previous version.
 
+### MCUboot Advanced Architecture
+
+AkiraOS relies on **MCUboot** for secure boot and OTA updates using a dual-slot flash architecture. 
+
+**Slot Mechanics**: 
+- The Internal memory map contains a `Primary Slot` and a `Secondary Slot`.
+- New firmware fragments passed over HTTP or BLE are continuously buffered via the `OTA Manager` and written precisely into the `Secondary Slot`.
+- Once the digest matches, MCUboot sets an `image_ok` flag and signals a reboot swap.
+
+**Fallback and Recovery**: 
+- MCUboot will temporarily swap `Secondary` to `Primary` and attempt a boot. 
+- If the image contains a severe exception (e.g. Zephyr Kernel Panic, Watchdog timeout) before the OS can validate itself by confirming `boot_confirm()`, MCUboot will automatically rollback by swapping the images back to original states on the subsequent hard reset. 
+- You are protected against power outages during the erase/write stages automatically due to transaction headers.
+
 ## Security
 
 - RSA/ECDSA signature verification

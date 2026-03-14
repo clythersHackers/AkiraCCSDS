@@ -122,6 +122,31 @@ west blobs fetch hal_espressif
 
 ⏱️ **Time:** 2-3 minutes
 
+### Step 5: ESP32 Flashing Tools (WSL Users)
+
+If you're using WSL (Windows Subsystem for Linux), you may need to install esptool in a Python virtual environment to avoid permission issues:
+
+```bash
+# Create a virtual environment
+python3 -m venv ~/akira-workspace/.venv
+
+# Activate the virtual environment
+source ~/akira-workspace/.venv/bin/activate
+
+# Install esptool in the virtual environment
+pip install esptool
+```
+
+**Note:** You'll need to activate the virtual environment each time you start a new terminal session before flashing:
+```bash
+source ~/akira-workspace/.venv/bin/activate
+```
+
+To deactivate the virtual environment (although building should be done in venv):
+```bash
+deactivate
+```
+
 ## Verify Installation
 
 ### Test Native Simulation
@@ -182,18 +207,11 @@ For **ESP32-S3 DevKitM:**
 
 ### WiFi Credentials (ESP32)
 
-Edit board config file:
+In the terminal of working application:
 ```bash
-# boards/esp32s3_devkitm_esp32s3_procpu.conf
-CONFIG_WIFI_SSID="YourNetwork"
-CONFIG_WIFI_PSK="YourPassword"
-```
-
-Or use menuconfig:
-```bash
-cd ~/akira-workspace/AkiraOS
-west build -t menuconfig
-# Navigate to: Networking → WiFi
+settings set_wifi SSID Password
+wifi_connect
+wifi_status
 ```
 
 ### Global Settings

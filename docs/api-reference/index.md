@@ -17,17 +17,35 @@ Complete reference for AkiraOS WASM application APIs.
 
 AkiraOS provides a custom native API for WASM applications. This is **not** WASI—it's optimized for embedded systems and real-time constraints.
 
+### Important Distinction
+
+There are **two API layers** in AkiraOS:
+
+1. **Native WASM Exports (14 functions)**: Low-level natives exported via `"akira"` module
+   - Direct imports available to WASM modules
+   - Minimal overhead, real-time suitable
+   - Documented below in [Import Module](#import-module)
+
+2. **SDK Wrapper API (50+ functions)**: High-level convenience library
+   - C library in `AkiraSDK/include/akira_api.h`
+   - Provides higher-level abstractions over native APIs
+   - Reduces boilerplate code
+   - See [SDK API Reference](../development/sdk-api-reference.md)
+
+**Most developers use the SDK API** (via `#include "akira_api.h"`), which automatically handles native imports.
+
 ### API Categories
 
-| Category | Functions | Purpose |
-|----------|-----------|---------|
-| [Display](#display-api) | 5 functions | Screen rendering |
-| [Input](#input-api) | 3 functions | Button/touch input |
-| [Sensors](#sensor-api) | 2 functions | IMU, temperature, etc. |
-| [RF/Network](#rf-api) | 4 functions | WiFi, BT, LoRa |
-| [File System](#filesystem-api) | 5 functions | Persistent storage |
-| [Logging](#logging-api) | 3 functions | Debug output |
-| [Time](#time-api) | 2 functions | Timing and delays |
+| Category | Native Functions | Purpose |
+|----------|------------------|---------|
+| [Logging](#logging-api) | `log_info`, `log_debug`, `log_error` | Debug output |
+| [Memory](#memory-api) | `malloc`, `free` | Heap allocation |
+| [Time](#time-api) | `get_time_ms`, `sleep_ms` | Timing |
+| [Display](#display-api) | `display_write` | Framebuffer write |
+| [Input](#input-api) | `input_read_buttons`, `input_button_pressed` | Button/input |
+| [GPIO](#gpio-api) | `gpio_configure`, `gpio_read`, `gpio_write` | GPIO control |
+| [File I/O](#file-io-api) | `file_read`, `file_write` | LittleFS access |
+| [System](#system-api) | `sys_info` | System info |
 
 ## Import Module
 
@@ -50,8 +68,8 @@ __attribute__((import_name("display_clear")))
 extern int akira_display_clear(uint32_t color);
 ```
 
-**Parameters:**
-- `color`: 24-bit RGB color (0xRRGGBB)
+    **Parameters:**
+    - `color`: RGB565 16-bit color (e.g., 0xF800 for red)
 
 **Returns:** 0 on success, negative on error
 
@@ -94,8 +112,7 @@ Render text string.
 
 ```c
 extern int akira_display_text(uint32_t x, uint32_t y,
-                              const char *text, uint32_t len,
-                              uint32_t color);
+                              const char *text, uint32_t color);
 ```
 
 ---

@@ -23,9 +23,9 @@ graph TB
     classDef memory fill:#50C878,stroke:#fff,color:#fff
     classDef improved fill:#f39c12,stroke:#fff,color:#fff
 
-    subgraph Apps ["WASM Applications (Max 4)"]
-        APP1[App Instance 1]
-        APP2[App Instance 2]
+    subgraph Apps ["WASM Applications (Max 8 in separate threads)"]
+        APP1[App Instance 1 (Thread)]
+        APP2[App Instance 2 (Thread)]
     end
 
     subgraph Runtime ["Runtime Core"]
@@ -105,7 +105,7 @@ typedef struct {
 - `akira_runtime_unload()` - Free resources
 - `akira_runtime_set_quota()` - Set memory limit
 
-**Limits:** 4 concurrent app instances (adequate for embedded use cases)
+**Limits:** 8 concurrent app instances default (adequate for embedded use cases). Note that AkiraOS uses a Thread-per-App Polling Model, meaning each application runs in an isolated Zephyr thread. Applications MUST yield control manually within tight loops using `delay()` to prevent system starvation.
 
 ### Chunked File Loader
 
@@ -206,6 +206,21 @@ int akira_native_display_clear(wasm_exec_env_t env, uint32_t color) {
     return platform_display_clear(color);
 }
 ```
+
+### Inter-Process Communication (IPC)
+
+AkiraRuntime implements a Pub/Sub event messaging system built directly over Zephyr's IPC mechanisms, designed explicitly for exchanging messages between sandboxed WASM applications and the Host OS natively.
+
+**Architecture:**
+- **Topic Exchange:** Up to `8` configurable hardware or software topics (`CONFIG_AKIRA_IPC_MAX_TOPICS`). 
+- **Subscribers:** Max `4` concurrent subscribers per topic. 
+- **Memory Routing:** Firing an event across IPC copies a small payload out of the publisher's Linear Memory constraints into `akira_ipc.c` internal queues, broadcasting copies into the subscriber's app instances queue space to bypass WAMR boundary sandboxing safely.
+
+### Manifest Configuration & Caching Layer
+
+The internal capability sandboxes rely on a rigorous parser bound to `.akira.manifest` files attached to or adjacent to loaded `.wasm` modules. 
+- **Dynamic Rejection:** If `manifest_parser.c` detects a module requesting a capability beyond the compiled boundaries (or missing digital signatures if `CONFIG_AKIRA_APP_SIGNING=y`), it halts execution prior to memory allocation.
+- **Runtime Caching:** Utilizing `runtime_cache.c`, AkiraOS avoids constant deep-flash retrievals of bytecode payloads. Successfully validated modules can be optionally cached dynamically onto faster storage or directly in PSRAM based on board availability to heavily trim startup times on application swaps.
 
 **Embedded Manifest:**
 ```wasm

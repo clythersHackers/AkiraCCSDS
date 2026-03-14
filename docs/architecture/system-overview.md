@@ -40,21 +40,36 @@ AkiraOS is a high-performance embedded operating system combining **Zephyr RTOS*
 
 ### Application Layer
 - **WASM Apps:** Sandboxed user applications (50-200KB)
-- **Max Concurrent:** 4 app instances
+- **Max Concurrent:** 2 running app instances (default via `CONFIG_AKIRA_APP_MAX_RUNNING`)
+- **Max Installed:** 8 apps locally stored (default via `CONFIG_AKIRA_APP_MAX_INSTALLED`)
 - **Languages:** C, Rust, AssemblyScript (compiled to WASM)
-- **APIs:** Display, input, sensors, RF, logging
+- **APIs:** Display, Input, Sensors, RF, Serial/Pins, IPC
+
+### Additional System Frameworks
+- **Settings System (NVS):** Binary non-volatile key-value registry storing system configurations (`settings.c`), optionally encrypted. The storage backend is selectable at runtime: internal flash NVS (`AKIRA_SETTINGS_STORAGE_FLASH`), SD card (`AKIRA_SETTINGS_STORAGE_SD`), or auto-detected (`AKIRA_SETTINGS_STORAGE_AUTO`). Values persist across reboots and can be queried via the shell (`settings get <key>`, `settings set <key> <value>`). 
+- **Native UI Framework:** Lightweight widget-based embedded windowing system (`ui_framework.c`) handling screens, rendering dirty-states, and widgets. **This is a native C-only framework and is not exported to WASM.** WASM applications interact with the display exclusively through the [Display API](../../AkiraSDK/docs/API_REFERENCE.md#display-api). 
+- **Interactive Shell (CLI):** Advanced UART debugging console (`akira_shell.c`) with namespaces for Network, Storage, RF, and direct Display testing.
+- **Core Libraries:** Integrated utilities including `simple_json` avoiding the need for heavy external parsing payloads.
+- **Storage Subsystem:** LittleFS flash partitioning with external SPI/SDMMC SD-Card mounts (`sd_card.c`).
 
 ## Thread Model
 
+AkiraOS uses a **Thread-per-App Polling Model** rather than an event-loop system. Each WASM application runs in its own dedicated Zephyr thread and cooperative multitasking is strictly required. Apps must call a yielding function like `delay()` within loops.
+
 | Thread | Stack Size | Priority | Purpose |
 |--------|------------|----------|---------|
-| Main | 8KB | 5 | App manager, WASM execution |
+| Main | 4KB | 5 | App manager, WASM execution |
+| App Threads | Dynamic | 6 | Individual WASM app instances |
+| System Workq | 1KB | - | Kernel background work tasks |
 | HTTP Server | 4KB | 7 | Network requests |
-| OTA Manager | 4KB | 6 | Firmware updates |
+| OTA/Net Sockets | 4KB | 6 | Firmware updates & Streams |
 | BT Manager | 6KB | 7 | Bluetooth operations |
-| Network RX | 4KB | 8 | TCP/IP receive |
+| Network RX | 2KB | 8 | TCP/IP receive poll stack |
 
 ## Memory Architecture
+
+**🚨 Critical Constraint - Thread Stacks:** 
+WASM thread stacks **MUST** live in internal SRAM, never PSRAM. On ESP32-S3 and similar boards, direct flash write/erase operations (e.g., LittleFS garbage collection) temporarily lock the SPI bus and cache. If a thread's stack is in PSRAM during this window, the CPU cannot read its own stack frames, causing a complete system freeze or hard fault.
 
 ```
 ┌─────────────────────────────────────────────────┐
@@ -148,15 +163,21 @@ graph TB
 │   ├── app1.wasm
 │   ├── app2.wasm
 │   └── ...
-├── data/              # App persistent data
-│   ├── app1/
-│   └── app2/
-├── config/            # System configuration
-│   ├── wifi.json
-│   └── bt.json
-└── logs/              # System logs
-    └── system.log
+└── data/              # App persistent data (sandboxed per-app)
+    ├── app1/
+    └── app2/
 ```
+
+> **System configuration is not stored as files.** WiFi credentials, Bluetooth settings, and other system parameters live in a binary **NVS (Non-Volatile Storage)** key-value registry implemented in `src/settings/settings.c`. There are no `/config/wifi.json` or `/config/bt.json` files on the filesystem.
+
+**Key NVS paths used by the system:**
+
+| Key | Meaning |
+|-----|---------|
+| `wifi/ssid` | WiFi network name |
+| `wifi/psk` | WiFi pre-shared key (PSK) |
+
+Applications read and write these entries via the shell commands (`wifi set`, `wifi get`) or indirectly through system APIs. Values can optionally be encrypted at rest. The storage backend auto-selects between internal flash NVS (`AKIRA_SETTINGS_STORAGE_FLASH`) and SD card (`AKIRA_SETTINGS_STORAGE_SD`), or detects the best available medium automatically (`AKIRA_SETTINGS_STORAGE_AUTO`).
 
 ## Power Management
 
@@ -178,9 +199,9 @@ graph TB
 
 | Metric | Current | Theoretical Max |
 |--------|---------|-----------------|
-| Concurrent Apps | 4 | 8 (memory limited) |
+| Concurrent Apps | 2 (running) | 8 (memory limited) |
 | WASM File Size | 200KB | 512KB (flash limited) |
-| HTTP Clients | 1 | 4 (stack limited) |
+| HTTP Clients | 5 | 16 (Zephyr TCP stack limited) |
 | BLE Connections | 1 | 3 (Zephyr limit) |
 
 ## Comparison with Alternatives
@@ -190,7 +211,7 @@ graph TB
 | WASM Support | ✅ Native | ❌ | ⚠️ Manual | ❌ |
 | Security Sandbox | ✅ Cap-based | ❌ | ❌ | ❌ |
 | OTA Updates | ✅ MCUboot | ✅ Custom | ✅ MCUboot | ⚠️ Basic |
-| Multi-App | ✅ 4 instances | ❌ | ❌ | ❌ |
+| Multi-App | ✅ 2 instances | ❌ | ❌ | ❌ |
 | Real-Time | ✅ Zephyr | ✅ FreeRTOS | ✅ Native | ⚠️ Limited |
 
 ## Related Documentation
