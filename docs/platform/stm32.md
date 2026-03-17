@@ -4,7 +4,7 @@ Experimental support for STM32 microcontrollers.
 
 ## Status
 
-⚠️ **Experimental** - Limited testing, community-driven
+**Status: Experimental** — limited testing, community-driven
 
 ## Supported Boards
 
@@ -15,10 +15,10 @@ Experimental support for STM32 microcontrollers.
 
 ## Features
 
-✅ **Cortex-M4/M7** - ARM architecture  
-⚠️ **Limited PSRAM** - External SRAM required for multiple apps  
-✅ **Rich Peripherals** - I2C, SPI, ADC, timers  
-⚠️ **Connectivity** - WiFi/BT via external modules  
+- Cortex-M4/M7 ARM architecture
+- External SRAM required for multiple WASM apps
+- Rich peripherals — I2C, SPI, ADC, timers
+- WiFi/BT via external modules
 
 ## Getting Started
 
@@ -61,5 +61,5 @@ CONFIG_HEAP_MEM_POOL_SIZE=131072  # 128KB
 ## Related Documentation
 
 - [Platform Overview](index.md)
-- [Porting Guide](../development/porting.md)
-- [STM32Cube Integration](../development/stm32.md)
+- [Building Apps](../development/building-apps.md)
+- [Development Guide](../development/index.md)

@@ -13,9 +13,9 @@ CONFIG_LOG_DEFAULT_LEVEL=4  # DEBUG
 ### Runtime Log Control
 
 ```bash
-uart:~$ log enable akira 4
-uart:~$ log enable wasm 4
-uart:~$ log list
+AkiraOS:~$ log enable akira 4
+AkiraOS:~$ log enable wasm 4
+AkiraOS:~$ log list
 ```
 
 ## GDB Debugging (Native Sim)
@@ -51,8 +51,8 @@ CONFIG_DEBUG_COREDUMP_BACKEND_LOGGING=y
 ### Check Stack Usage
 
 ```bash
-uart:~$ kernel stacks
-uart:~$ kernel threads
+AkiraOS:~$ kernel stacks
+AkiraOS:~$ kernel threads
 ```
 
 ### Enable Stack Canaries

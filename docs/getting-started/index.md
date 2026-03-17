@@ -48,10 +48,10 @@ graph LR
 
 | Platform | Status | Flash Method | Notes |
 |----------|--------|--------------|-------|
-| ESP32-S3 | ✅ Fully supported | UART/USB | Primary target, WiFi + BT |
-| Native Sim | ✅ Fully supported | N/A | Testing only |
-| nRF54L15 | ✅ Supported | J-Link/SWD | BLE + sensors |
-| STM32 | ⚠️ Experimental | SWD | Limited testing |
+| ESP32-S3 | Supported | UART/USB | Primary target, WiFi + BLE |
+| Native Sim | Supported | N/A | Testing only |
+| nRF54L15 | Supported | J-Link/SWD | BLE + sensors |
+| STM32 | Experimental | SWD | Limited testing |
 
 [Detailed platform guides →](../platform/)
 

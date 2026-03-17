@@ -22,6 +22,9 @@ Advanced topics for AkiraOS WASM app development.
 - [OTA Updates](ota-updates.md) - Over-the-air firmware deployment
 - [Debugging](debugging.md) - Debug techniques and tools
 
+### Reference
+- [Build Options Reference](../reference/build-options.md) — Kconfig options for AkiraOS
+
 ### Contributing
 See [CONTRIBUTING.md](../../CONTRIBUTING.md) for contribution guidelines.
 

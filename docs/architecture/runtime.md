@@ -9,11 +9,11 @@ AkiraRuntime is a purpose-built WASM execution environment designed for resource
 **Design Goal:** Build a high-performance streaming runtime that rivals native execution while maintaining security isolation.
 
 **Key Features:**
-- 🔄 Chunked file loading (50% less peak memory)
-- ⚡ Inline capability checks (~60ns overhead)
-- 💾 Per-app memory quotas (prevents exhaustion)
-- 🔒 Embedded manifest support
-- 🎯 Custom native APIs (not WASI)
+- Chunked file loading (50% less peak memory)
+- Inline capability checks (~60 ns overhead)
+- Per-app memory quotas (prevents exhaustion)
+- Embedded manifest support
+- Custom native APIs (not WASI)
 
 ```mermaid
 graph TB
@@ -137,10 +137,10 @@ sequenceDiagram
 ```
 
 **Benefits:**
-- ✅ 50% less peak memory (16KB vs entire file)
-- ✅ Supports WASM files larger than available RAM
-- ✅ Predictable memory usage
-- ⏭️ Future: Network streaming directly to WAMR
+- 50% less peak memory (16 KB vs entire file in RAM)
+- Supports WASM files larger than available RAM
+- Predictable memory usage
+- Planned: network streaming directly to WAMR
 
 ### Native Bridge
 
@@ -172,10 +172,10 @@ Actual API implementation
 ```
 
 **Performance:**
-- ✅ ~60ns native call overhead (down from ~100ns)
-- ✅ Inline capability checks (no function call)
-- ✅ Branch prediction friendly
-- ⏭️ Future: Static jump table for <50ns
+- ~60 ns native call overhead
+- Inline capability checks (no function call overhead)
+- Branch prediction friendly
+- Planned: static jump table for <50 ns
 
 ### Security Layer
 
@@ -228,16 +228,16 @@ The internal capability sandboxes rely on a rigorous parser bound to `.akira.man
 (custom "akira-manifest"
   (name "my_app")
   (version "1.0.0")
-  (capabilities "display" "input" "sensor")
+  (capabilities "display.write" "input.read" "sensor.read")
   (memory_quota 65536)  ;; 64KB limit
 )
 ```
 
 **Benefits:**
-- ✅ ~40% faster permission checks
-- ✅ Manifest embedded in WASM (no separate .json)
-- ✅ Per-app memory quotas
-- ⚠️ Still coarse-grained (no per-resource limits)
+- ~40% faster permission checks (cached capability mask)
+- Manifest embedded in WASM (no separate JSON file required)
+- Per-app memory quotas
+- Note: capability granularity is per-category, not per-resource
 
 ### Memory Management
 
@@ -357,14 +357,12 @@ stateDiagram-v2
 4. **Safety** - Capabilities, quotas, sandboxing
 5. **Simplicity** - Fixed app count, straightforward API
 
-## Future Improvements
+## Planned Improvements
 
-See [Implementation Tasks](../../IMPLEMENTATION_TASKS.md) for planned enhancements:
-- Static native function jump table (<50ns calls)
-- Network streaming to WAMR (skip filesystem)
+- Static native function jump table (<50 ns calls)
+- Network streaming to WAMR (skip filesystem round-trip)
 - Multi-core WASM execution
-- JIT compilation support
-- Advanced capability granularity
+- Advanced capability granularity (per-resource limits)
 
 ## Related Documentation
 

@@ -119,8 +119,8 @@ curl -X POST -F "file=@bin/hello_world.wasm" http://<device-ip>/upload
 west espmonitor
 
 # In the shell:
-uart:~$ wasm load /apps/hello_world.wasm
-uart:~$ wasm start hello_world
+AkiraOS:~$ wasm load /apps/hello_world.wasm
+AkiraOS:~$ wasm start hello_world
 ```
 
 Expected output:
@@ -199,7 +199,7 @@ Capability required: `"storage.write"`
 
 **"Failed to load WASM"** — check the file exists:
 ```bash
-uart:~$ fs ls /apps
+AkiraOS:~$ fs ls /apps
 ```
 
 **"capability denied"** — add the required capability to `manifest.json`:

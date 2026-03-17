@@ -14,58 +14,48 @@ AkiraOS supports multiple embedded platforms with varying feature sets.
 
 | Platform | CPU | RAM | PSRAM | WiFi | BLE | Status |
 |----------|-----|-----|-------|------|-----|--------|
-| **[ESP32-S3](esp32-s3.md)** | Dual Xtensa @ 240MHz | 512KB | 8MB | ✅ | ✅ | ✅ Primary |
-| **[Native Sim](native-sim.md)** | Host CPU | Host | N/A | ❌ | ❌ | ✅ Testing |
-| **[nRF54L15](nrf54l15.md)** | Cortex-M33 @ 128MHz | 256KB | N/A | ❌ | ✅ | ✅ Supported |
-| **[STM32](stm32.md)** | Cortex-M4/M7 | 256-512KB | External | ⚠️ | ⚠️ | ⚠️ Experimental |
+| [ESP32-S3](esp32-s3.md) | Dual Xtensa LX7 @ 240 MHz | 512 KB | 8 MB | Yes | Yes | Primary |
+| [ESP32-C3](esp32-c3.md) | RISC-V @ 160 MHz | 400 KB | No | Yes | No (default) | Supported |
+| [nRF54L15](nrf54l15.md) | Cortex-M33 @ 128 MHz | 256 KB | No | No | Yes | Supported |
+| [STM32](stm32.md) | Cortex-M4/M7 | 256–512 KB | External | Partial | Partial | Experimental |
+| [Native Sim](native-sim.md) | Host CPU | Host | N/A | No | No | Testing only |
 
 ## Quick Selection Guide
 
 **For Production Deployment:**
-- **ESP32-S3 DevKitM** - Best all-around choice
-  - Large PSRAM for multiple WASM apps
-  - WiFi + Bluetooth connectivity
-  - USB support, affordable (~$5)
+- **ESP32-S3** — Best all-around choice. Large PSRAM for multiple WASM apps, WiFi + Bluetooth connectivity, USB support.
 
 **For BLE-Only Applications:**
-- **nRF54L15** - Nordic platform
-  - Power-efficient BLE 5.3
-  - Excellent sensor integration
-  - Thread/Zigbee capable
+- **nRF54L15** — Power-efficient BLE 5.3, excellent sensor integration, Thread/Zigbee capable.
 
-**For Development/Testing:**
-- **Native Simulation** - Fastest iteration
-  - No hardware needed
-  - Quick debugging with GDB
-  - Ideal for algorithm development
+**For Development and Testing:**
+- **Native Simulation** — No hardware needed. Quick debugging with GDB. Ideal for algorithm development.
 
 **For STM32 Familiarity:**
-- **STM32 Boards** - Experimental support
-  - Leverage existing STM32 knowledge
-  - Limited PSRAM (external required)
-  - Best for custom hardware
+- **STM32 Boards** — Experimental support. Limited without external PSRAM.
 
 ## Feature Comparison
 
 | Feature | ESP32-S3 | Native Sim | nRF54L15 | STM32 |
 |---------|----------|------------|----------|-------|
-| **WASM Apps** | 4 concurrent | 4 concurrent | 2-3 | 1-2 |
-| **Max App Size** | 200KB | Unlimited | 100KB | 50KB |
-| **OTA Updates** | ✅ WiFi | ❌ | ✅ BLE | ⚠️ UART |
-| **Display Support** | ✅ SPI | ✅ SDL2 | ✅ SPI | ✅ SPI |
-| **Sensors** | ✅ I2C/SPI | ⚠️ Simulated | ✅ I2C/SPI | ✅ I2C/SPI |
-| **Power Modes** | Deep sleep | N/A | Ultra-low | Low power |
+| Max concurrent WASM apps | 2 | 2 | 1–2 | 1 |
+| Max app size | 200 KB | Unlimited | 100 KB | 50 KB |
+| OTA updates | Yes (WiFi) | No | Yes (BLE) | Partial (UART) |
+| Display support | Yes (SPI) | Yes (SDL2) | Yes (SPI) | Yes (SPI) |
+| Sensor support | Yes (I2C/SPI) | Simulated | Yes (I2C/SPI) | Yes (I2C/SPI) |
+| Power modes | Deep sleep | N/A | Ultra-low power | Low power |
 
 ## Platform-Specific Guides
 
-- [ESP32-S3 Setup Guide](esp32-s3.md) - Detailed ESP32-S3 configuration
-- [Native Simulation Guide](native-sim.md) - Running on host PC
-- [nRF54L15 Guide](nrf54l15.md) - Nordic platform setup
-- [STM32 Guide](stm32.md) - STM32 experimental support
+- [ESP32-S3 Setup Guide](esp32-s3.md) — Detailed ESP32-S3 configuration
+- [ESP32-C3 Setup Guide](esp32-c3.md) — RISC-V variant
+- [Native Simulation Guide](native-sim.md) — Running on host PC
+- [nRF54L15 Guide](nrf54l15.md) — Nordic platform setup
+- [STM32 Guide](stm32.md) — STM32 experimental support
 
 ## Getting Started
 
-1. Choose your platform based on the comparison above
+1. Choose your platform from the comparison table above
 2. Follow the platform-specific setup guide
 3. Build and flash firmware
 4. Deploy WASM applications
@@ -74,14 +64,12 @@ AkiraOS supports multiple embedded platforms with varying feature sets.
 
 AkiraOS can be ported to any Zephyr-supported board. Requirements:
 - Zephyr RTOS support
-- Minimum 256KB RAM
-- 2MB flash for firmware
-- Optional: PSRAM for multiple apps
-
-See [Porting Guide](../development/porting.md) for details.
+- Minimum 256 KB RAM
+- 2 MB flash for firmware
+- Optional: PSRAM for multiple concurrent apps
 
 ## Related Documentation
 
-- [Installation Guide](../getting-started/installation.md) - Environment setup
-- [Architecture Overview](../architecture/) - System design
-- [Hardware](../hardware/) - Custom hardware designs
+- [Installation Guide](../getting-started/installation.md) — Environment setup
+- [Architecture Overview](../architecture/) — System design
+- [Hardware](../hardware/) — Custom hardware designs

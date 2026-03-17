@@ -8,11 +8,11 @@ Native simulation compiles AkiraOS to run directly on your host CPU (x86_64 or A
 
 ## Features
 
-✅ **Fast Iteration** - No flashing, instant execution  
-✅ **GDB Debugging** - Full source-level debugging  
-✅ **CI/CD Friendly** - Automated testing  
-✅ **Cross-Platform** - Linux, macOS (limited), WSL2  
-⚠️ **Limited Peripherals** - No real WiFi/BT/sensors  
+- Fast iteration — no flashing, instant execution
+- GDB debugging — full source-level debugging
+- CI/CD friendly — automated testing
+- Supported on Linux, WSL2, macOS (limited)
+- Limited peripherals — no real WiFi/BT/sensors
 
 ## Building
 
@@ -35,7 +35,7 @@ cd ../build/zephyr
 *** Booting Zephyr OS build v4.3.0 ***
 [00:00:00.000] <inf> main: AkiraOS v1.4.9 Gl1tch starting...
 [00:00:00.010] <inf> wasm: Runtime initialized
-uart:~$ 
+AkiraOS:~$ 
 ```
 
 ### Exit
@@ -48,14 +48,14 @@ Press `Ctrl+C` to stop execution.
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| **WASM Runtime** | ✅ Full | Same as hardware |
-| **File System** | ✅ Full | Uses host filesystem |
-| **Shell** | ✅ Full | Interactive commands |
-| **Display** | ✅ SDL2 | Graphical window (if SDL2 installed) |
-| **Sensors** | ⚠️ Mock | Returns fake data |
-| **WiFi** | ❌ | Not simulated |
-| **Bluetooth** | ❌ | Not simulated |
-| **OTA** | ❌ | Not applicable |
+| **WASM Runtime** | Full | Same as hardware |
+| **File System** | Full | Uses host filesystem |
+| **Shell** | Full | Interactive commands |
+| **Display** | No | Disabled (CONFIG_DISPLAY=n) |
+| **Sensors** | Mock | Returns fake data |
+| **WiFi** | No | Not simulated |
+| **Bluetooth** | No | Not simulated |
+| **OTA** | No | Not applicable |
 
 ---
 
@@ -93,8 +93,8 @@ ls /tmp/akiraos-fs/apps/
 cp AkiraSDK/wasm_apps/hello_world/hello_world.wasm /tmp/akiraos-fs/apps/
 
 # In AkiraOS:
-uart:~$ fs ls /apps
-uart:~$ wasm load /apps/hello_world.wasm
+AkiraOS:~$ fs ls /apps
+AkiraOS:~$ wasm load /apps/hello_world.wasm
 ```
 
 ---
@@ -152,10 +152,10 @@ void process_data() {
 Test shell commands:
 
 ```bash
-uart:~$ wasm status
-uart:~$ fs ls /
-uart:~$ kernel threads
-uart:~$ log list
+AkiraOS:~$ wasm status
+AkiraOS:~$ fs ls /
+AkiraOS:~$ kernel threads
+AkiraOS:~$ log list
 ```
 
 ### CI/CD Integration
@@ -176,17 +176,17 @@ uart:~$ log list
 
 ## Limitations
 
-❌ **No Real Hardware**
+**No Real Hardware**
 - WiFi/BT not available
 - Sensors return fake values
 - GPIO/I2C/SPI not functional
 
-❌ **Different Timing**
+**Different Timing**
 - Host CPU much faster than embedded
 - Sleep/delays not accurately simulated
 - Real-time behavior different
 
-❌ **Different Memory Layout**
+**Different Memory Layout**
 - No PSRAM distinction
 - Larger address space
 - Different alignment rules

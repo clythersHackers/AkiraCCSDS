@@ -91,11 +91,11 @@ sequenceDiagram
     MCU->>MCU: Boot new firmware
 ```
 
-**Improvements:**
-- ✅ Direct flash writes (no message queue)
-- ✅ 2 data copies (down from 4)
-- ✅ <10s for 1.1MB firmware
-- ✅ No 120s timeout issues
+**Characteristics:**
+- Direct flash writes (no message queue overhead)
+- 2 data copies (reduced from 4)
+- <10 s for 1.1 MB firmware
+- Configurable socket timeout
 
 **Data Copies:** 2 (network buffer → HTTP buffer → flash buffer → flash)
 
@@ -295,7 +295,6 @@ graph TB
 - **Static jump table:** Remove hash lookup (<50ns calls)
 - **Network streaming:** Load WASM directly from HTTP
 
-See [Implementation Tasks](../../IMPLEMENTATION_TASKS.md) for details.
 
 ---
 

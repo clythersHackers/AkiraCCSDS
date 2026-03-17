@@ -16,10 +16,10 @@ AkiraOS implements a **multi-layered security architecture** combining WASM sand
 - No direct hardware access
 
 **Limitations of WASM alone:**
-- ✅ Prevents memory corruption
-- ❌ Cannot control which native APIs are accessible
-- ❌ No resource usage limits beyond memory
-- ❌ All imported functions equally accessible
+- Prevents memory corruption
+- Cannot control which native APIs are accessible
+- No resource usage limits beyond memory bounds
+- All imported functions equally accessible without additional enforcement
 
 ### 2. Capability System (AkiraRuntime Layer)
 
@@ -131,7 +131,7 @@ Apps declare required capabilities in an embedded WASM custom section.
 {
   "name": "sensor_logger",
   "version": "1.2.0",
-  "capabilities": ["sensor", "fs.write", "display"],
+  "capabilities": ["sensor.read", "storage.write", "display.write"],
   "memory_quota": 81920
 }
 ```

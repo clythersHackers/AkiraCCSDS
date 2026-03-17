@@ -82,7 +82,7 @@ west update
 └── tools/            # Build utilities
 ```
 
-⏱️ **Time:** 5-10 minutes
+**Time:** 5-10 minutes
 
 ### Step 3: Install Zephyr SDK
 
@@ -107,7 +107,7 @@ export ZEPHYR_SDK_INSTALL_DIR=~/zephyr-sdk-0.17.4
 export ZEPHYR_BASE=~/akira-workspace/zephyr
 ```
 
-⏱️ **Time:** 10-15 minutes
+**Time:** 10-15 minutes
 
 ### Step 4: ESP32 Support (Platform-Specific)
 
@@ -120,7 +120,7 @@ cd ~/akira-workspace
 west blobs fetch hal_espressif
 ```
 
-⏱️ **Time:** 2-3 minutes
+**Time:** 2-3 minutes
 
 ### Step 5: ESP32 Flashing Tools (WSL Users)
 
@@ -163,7 +163,7 @@ cd ~/akira-workspace/AkiraOS
 *** Booting Zephyr OS build v4.3.0 ***
 [00:00:00.000] <inf> main: AkiraOS v1.4.9 Gl1tch starting...
 [00:00:00.010] <inf> wasm: Runtime initialized
-uart:~$ 
+AkiraOS:~$ 
 ```
 
 Press `Ctrl+C` to exit.
@@ -213,8 +213,8 @@ CONFIG_WIFI_PSK="YourPassword"
 
 Verify connection after boot:
 ```bash
-uart:~$ net iface    # shows IP address when connected
-uart:~$ wifi connect -s YourNetwork -p YourPassword   # manual connect
+AkiraOS:~$ net iface    # shows IP address when connected
+AkiraOS:~$ wifi connect -s YourNetwork -p YourPassword   # manual connect
 ```
 
 ### Global Settings

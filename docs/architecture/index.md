@@ -75,7 +75,7 @@ WebAssembly applications run in isolated sandboxes with capability-based access 
 - **Execution:** WASM bytecode (interpreter) or AOT (native code)
 - **Security:** Per-app capabilities, memory quotas
 - **Size:** 50KB-200KB per app
-- **Max Instances:** 4 concurrent apps
+- **Max Instances:** 2 concurrent running apps (configurable per board)
 - **Performance:** 1x (interpreter) or 10-50x (AOT)
 
 [Learn more about the Runtime →](runtime.md) | [AOT Compilation →](aot-compilation.md)
@@ -176,9 +176,10 @@ WASM Code → WAMR Import → Native Bridge → Inline Cap Check → HAL Functio
 - [System Overview](system-overview.md) - Complete architecture guide
 - [Connectivity Layer](connectivity.md) - Network protocols
 - [AkiraRuntime](runtime.md) - WASM execution environment
-- [AOT Compilation](aot-compilation.md) - Native code compilation for 10-50x performance
+- [AOT Compilation](aot-compilation.md) - Native code compilation for 10–50x performance
 - [Security Model](security.md) - Capability system
 - [Data Flow](data-flow.md) - Information flow diagrams
+- [Advanced Connectivity](advanced-connectivity.md) - Matter, Thread, AkiraMesh (planned)
 
 ## Related Documentation
 

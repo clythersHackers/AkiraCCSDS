@@ -343,77 +343,80 @@ extern uint32_t akira_rf_status();
 
 ---
 
-## File System Functions
+## Storage Functions
 
-### `fs_read(path, buffer, max_length)`
+Storage functions operate within a per-app sandbox directory. All paths are relative to the app's data directory. Path traversal (`..`) is rejected with `-EACCES`.
 
-Read file contents into buffer.
+**Capability Required:** `storage.read` for reading/listing; `storage.write` for writing/deleting.
+
+### `storage_open(path, flags)`
+
+Open a file in the app sandbox.
 
 ```c
-__attribute__((import_module("akira")))
-__attribute__((import_name("fs_read")))
-extern int akira_fs_read(const char *path, uint8_t *buffer, uint32_t max_length);
+extern int storage_open(const char *path, int flags);
 ```
 
 **Parameters:**
-- `path`: File path (must start with `/data/<app_name>/`)
-- `buffer`: Destination buffer
-- `max_length`: Maximum bytes to read
+- `path`: Relative path within app sandbox (e.g. `"log.txt"`)
+- `flags`: `STORAGE_O_READ` (0), `STORAGE_O_WRITE` (1), `STORAGE_O_APPEND` (2), `STORAGE_O_RDWR` (3)
 
-**Returns:** Bytes read, or negative on error
-
-**Capability Required:** `CAP_FS_READ`
-
-**Path Restrictions:** Apps can only access `/data/<app_name>/` directory
+**Returns:** Non-negative file descriptor on success, negative errno on error.
 
 ---
 
-### `fs_write(path, data, length)`
+### `storage_read(fd, buf, len)`
 
-Write data to file.
+Read bytes from an open file.
 
 ```c
-__attribute__((import_module("akira")))
-__attribute__((import_name("fs_write")))
-extern int akira_fs_write(const char *path, const uint8_t *data, uint32_t length);
+extern int storage_read(int fd, void *buf, int len);
 ```
 
-**Capability Required:** `CAP_FS_WRITE`
+**Returns:** Bytes read (0 = EOF), negative errno on error.
 
 ---
 
-### `fs_stat(path, size_out)`
+### `storage_write(fd, buf, len)`
 
-Get file information.
+Write bytes to an open file.
 
 ```c
-extern int akira_fs_stat(const char *path, uint32_t *size_out);
+extern int storage_write(int fd, const void *buf, int len);
 ```
 
-**Returns:**
-- `0`: File exists, size written
-- `-ENOENT`: File not found
+**Returns:** Bytes written on success, negative errno on error.
 
 ---
 
-### `fs_delete(path)`
+### `storage_close(fd)`
 
-Delete file.
+Close a file descriptor.
 
 ```c
-extern int akira_fs_delete(const char *path);
+extern void storage_close(int fd);
 ```
 
-**Capability Required:** `CAP_FS_WRITE`
+---
+
+### `storage_delete(path)`
+
+Delete a file from the app sandbox.
+
+```c
+extern int storage_delete(const char *path);
+```
+
+**Capability Required:** `storage.write`
 
 ---
 
-### `fs_list(path, buffer, max_entries)`
+### `storage_list(path, buf, len)`
 
-List directory contents.
+List files in the app sandbox directory.
 
 ```c
-extern int akira_fs_list(const char *path, char *buffer, uint32_t max_entries);
+extern int storage_list(const char *path, char *buf, int len);
 ```
 
 ---
@@ -444,23 +447,18 @@ akira_log(msg, 18);
 
 ---
 
-### `log_debug(message)`
+### `log_info(message)` / `log_debug(message)` / `log_error(message)`
 
-Log at DEBUG level.
-
-```c
-extern void akira_log_debug(const char *message, uint32_t length);
-```
-
----
-
-### `log_error(message)`
-
-Log at ERROR level.
+Log at a specific level. These are exported from the `akira_log` module.
 
 ```c
-extern void akira_log_error(const char *message, uint32_t length);
+// All three take a single null-terminated string
+extern void log_info(const char *message);
+extern void log_debug(const char *message);
+extern void log_error(const char *message);
 ```
+
+**Note:** These low-level exports are used internally by `printf()` in `akira_api.h`. Most apps should use `printf()` directly rather than calling these.
 
 ---
 

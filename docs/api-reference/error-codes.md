@@ -89,16 +89,18 @@ int sent = akira_rf_send(data, len);
 
 ---
 
-### File System APIs
+### Storage APIs
 
 ```c
-int ret = akira_fs_write(path, data, len);
+int fd = storage_open("log.txt", STORAGE_O_WRITE);
+int ret = storage_write(fd, data, len);
+storage_close(fd);
 ```
 
 | Return | Meaning |
 |--------|---------|
-| `>= 0` | Bytes written |
-| `-EACCES` | Missing `CAP_FS_WRITE` or path outside `/data/<app_name>/` |
+| `>= 0` | Bytes written / file descriptor |
+| `-EACCES` | Missing `storage.write` capability or path traversal attempt |
 | `-ENOENT` | Parent directory doesn't exist |
 | `-ENOSPC` | Flash partition full |
 | `-EINVAL` | Invalid path (e.g., `../` attempts) |
@@ -134,7 +136,13 @@ if (ret != 0) {
 ### Specific Error Handling
 
 ```c
-int ret = akira_fs_write("/data/myapp/log.txt", data, len);
+int fd = storage_open("log.txt", STORAGE_O_WRITE);
+if (fd < 0) {
+    akira_log("Open failed", 11);
+    return;
+}
+int ret = storage_write(fd, data, len);
+storage_close(fd);
 
 if (ret >= 0) {
     akira_log("Write successful", 16);
@@ -231,7 +239,7 @@ if (ret == -EACCES) {
 **Fix:** Update manifest:
 ```json
 {
-  "capabilities": ["display"]
+  "capabilities": ["display.write"]
 }
 ```
 
@@ -242,17 +250,17 @@ if (ret == -EACCES) {
 ### Enable Detailed Error Logging
 
 ```bash
-uart:~$ log enable akira 4
-uart:~$ log enable wasm 4
+AkiraOS:~$ log enable akira 4
+AkiraOS:~$ log enable wasm 4
 ```
 
 ### Check System Status
 
 ```bash
-uart:~$ wasm status        # Check app state
-uart:~$ kernel stacks      # Check memory usage
-uart:~$ fs df              # Check disk space
-uart:~$ net iface          # Check network status
+AkiraOS:~$ wasm status        # Check app state
+AkiraOS:~$ kernel stacks      # Check memory usage
+AkiraOS:~$ fs df              # Check disk space
+AkiraOS:~$ net iface          # Check network status
 ```
 
 ### Common Error Scenarios

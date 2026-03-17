@@ -68,7 +68,9 @@ AkiraOS uses a **Thread-per-App Polling Model** rather than an event-loop system
 
 ## Memory Architecture
 
-**🚨 Critical Constraint - Thread Stacks:** 
+The diagram below shows ESP32-S3 DevKitM (primary target). Other boards differ: ESP32 has no PSRAM, ESP32-C3 has 32 KB heap, nRF54L15 has 32 KB heap and no PSRAM.
+
+**Critical Constraint — Thread Stacks:**
 WASM thread stacks **MUST** live in internal SRAM, never PSRAM. On ESP32-S3 and similar boards, direct flash write/erase operations (e.g., LittleFS garbage collection) temporarily lock the SPI bus and cache. If a thread's stack is in PSRAM during this window, the CPU cannot read its own stack frames, causing a complete system freeze or hard fault.
 
 ```
@@ -82,23 +84,23 @@ WASM thread stacks **MUST** live in internal SRAM, never PSRAM. On ESP32-S3 and 
 └─────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────┐
-│ SRAM (512KB)                                    │
+│ SRAM (512KB) — ESP32-S3                         │
 ├─────────────────────────────────────────────────┤
-│ Kernel Heap (128KB)                             │
-│ Thread Stacks (64KB)                            │
-│ Network Buffers (32KB)                          │
-│ BSS/Data (128KB)                                │
-│ Unused (160KB)                                  │
+│ Kernel Heap (64KB)   CONFIG_HEAP_MEM_POOL_SIZE  │
+│ Thread Stacks (~64KB)                           │
+│ Network Buffers (~32KB)                         │
+│ BSS/Data (~128KB)                               │
+│ Remaining: available for Zephyr kernel          │
 └─────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────┐
-│ PSRAM (8MB)                                     │
+│ PSRAM (8MB) — ESP32-S3                          │
 ├─────────────────────────────────────────────────┤
-│ WASM Memory Pool (256KB)                        │
+│ WAMR Heap (1MB)   CONFIG_WAMR_HEAP_SIZE         │
 │ App 1 Linear Memory (0-128KB)                   │
 │ App 2 Linear Memory (0-128KB)                   │
-│ Network Buffers (12KB)                          │
-│ Unused (~7.6MB)                                 │
+│ WiFi buffers, fonts, framebuffer                │
+│ Remaining free PSRAM                            │
 └─────────────────────────────────────────────────┘
 ```
 
@@ -208,11 +210,11 @@ Applications read and write these entries via the shell commands (`wifi set`, `w
 
 | Feature | AkiraOS | ESP-IDF | Zephyr | Arduino |
 |---------|---------|---------|--------|---------|
-| WASM Support | ✅ Native | ❌ | ⚠️ Manual | ❌ |
-| Security Sandbox | ✅ Cap-based | ❌ | ❌ | ❌ |
-| OTA Updates | ✅ MCUboot | ✅ Custom | ✅ MCUboot | ⚠️ Basic |
-| Multi-App | ✅ 2 instances | ❌ | ❌ | ❌ |
-| Real-Time | ✅ Zephyr | ✅ FreeRTOS | ✅ Native | ⚠️ Limited |
+| WASM support | Yes (native) | No | Manual | No |
+| Security sandbox | Yes (cap-based) | No | No | No |
+| OTA updates | Yes (MCUboot) | Yes (custom) | Yes (MCUboot) | Basic |
+| Multi-app | Yes (2 instances) | No | No | No |
+| Real-time | Yes (Zephyr) | Yes (FreeRTOS) | Yes (native) | Limited |
 
 ## Related Documentation
 

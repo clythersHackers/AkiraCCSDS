@@ -137,16 +137,16 @@ CONFIG_LOG_DEFAULT_LEVEL=3  # Reduce logging
 **Debug steps:**
 ```bash
 # Check file exists
-uart:~$ fs ls /apps
+AkiraOS:~$ fs ls /apps
 
 # Check file size
-uart:~$ fs stat /apps/app.wasm
+AkiraOS:~$ fs stat /apps/app.wasm
 
 # Enable debug logging
-uart:~$ log enable wasm 4
+AkiraOS:~$ log enable wasm 4
 
 # Try loading again
-uart:~$ wasm load /apps/app.wasm
+AkiraOS:~$ wasm load /apps/app.wasm
 ```
 
 **Common causes:**
@@ -164,7 +164,7 @@ uart:~$ wasm load /apps/app.wasm
 **Solution:**
 ```bash
 # Increase PSRAM pool in prj.conf
-CONFIG_HEAP_MEM_POOL_SIZE=524288  # 512KB instead of 256KB
+CONFIG_HEAP_MEM_POOL_SIZE=131072  # 128KB — increase if WASM heap is exhausted
 
 # Or increase per-app quota in manifest
 {
@@ -172,8 +172,8 @@ CONFIG_HEAP_MEM_POOL_SIZE=524288  # 512KB instead of 256KB
 }
 
 # Check current usage
-uart:~$ kernel stacks
-uart:~$ wasm status
+AkiraOS:~$ kernel stacks
+AkiraOS:~$ wasm status
 ```
 
 ---
@@ -186,17 +186,17 @@ uart:~$ wasm status
 ```json
 {
   "capabilities": [
-    "display",
-    "input",
-    "sensor",  // Add this
-    "rf"       // Or this
+    "display.write",
+    "input.read",
+    "sensor.read",   // Add this
+    "rf.transceive"  // Or this
   ]
 }
 ```
 
 **Check logs for denied capability:**
 ```bash
-uart:~$ log list
+AkiraOS:~$ log list
 [00:00:05.123] <err> security: App 'myapp' denied CAP_SENSOR_READ
 ```
 
@@ -211,7 +211,7 @@ uart:~$ log list
 **Debug:**
 ```bash
 # Check WiFi config
-uart:~$ net iface
+AkiraOS:~$ net iface
 
 # Check credentials in board config
 # boards/esp32s3_devkitm_esp32s3_procpu.conf
@@ -219,7 +219,7 @@ CONFIG_WIFI_SSID="YourNetwork"
 CONFIG_WIFI_PSK="YourPassword"
 
 # Manual connect (if available)
-uart:~$ wifi connect -s YourNetwork -p YourPassword
+AkiraOS:~$ wifi connect -s YourNetwork -p YourPassword
 ```
 
 ---
@@ -231,18 +231,18 @@ uart:~$ wifi connect -s YourNetwork -p YourPassword
 **Debug:**
 ```bash
 # Check IP address
-uart:~$ net iface
+AkiraOS:~$ net iface
 # Look for "IPv4 address: 192.168.x.x"
 
 # Ping from PC
 ping 192.168.x.x
 
 # Check server is running
-uart:~$ kernel threads
+AkiraOS:~$ kernel threads
 # Look for "http_server" thread
 
 # Enable HTTP logging
-uart:~$ log enable http 4
+AkiraOS:~$ log enable http 4
 ```
 
 ---
@@ -273,7 +273,7 @@ curl -X POST -F "file=@myapp.wasm" http://192.168.x.x/upload -v
 **Solution:**
 ```bash
 # Enable AOT compilation (if flash space available)
-CONFIG_WAMR_BUILD_AOT=y
+CONFIG_WAMR_AOT_SUPPORT=y
 
 # Optimize WASM build
 wasm-opt -O3 myapp.wasm -o myapp_opt.wasm
@@ -289,13 +289,13 @@ CONFIG_LOG_DEFAULT_LEVEL=2  # WARNING only
 **Debug tools:**
 ```bash
 # Check thread stacks
-uart:~$ kernel stacks
+AkiraOS:~$ kernel stacks
 
 # Check heap usage
-uart:~$ kernel heap
+AkiraOS:~$ kernel heap
 
 # Check WASM app usage
-uart:~$ wasm status
+AkiraOS:~$ wasm status
 
 # Enable stack checking
 CONFIG_THREAD_STACK_INFO=y
@@ -391,13 +391,13 @@ CONFIG_WAMR_LOG_LEVEL_DBG=y
 ### Collect Diagnostics
 
 ```bash
-uart:~$ kernel version
-uart:~$ kernel uptime
-uart:~$ kernel threads
-uart:~$ kernel stacks
-uart:~$ net iface
-uart:~$ fs ls /
-uart:~$ wasm status
+AkiraOS:~$ kernel version
+AkiraOS:~$ kernel uptime
+AkiraOS:~$ kernel threads
+AkiraOS:~$ kernel stacks
+AkiraOS:~$ net iface
+AkiraOS:~$ fs ls /
+AkiraOS:~$ wasm status
 ```
 
 ### Report Issues
@@ -415,11 +415,11 @@ When opening a GitHub issue, include:
 
 | Issue | Status | Workaround |
 |-------|--------|------------|
-| OTA timeout (120s) | ⏳ Fix planned | Upload smaller firmware |
-| Max 4 concurrent apps | ⚠️ By design | Adequate for embedded |
-| Single HTTP connection | ⏳ Fix planned | Queue uploads |
-| No app signing | 🚧 Future feature | Manual verification |
-| File-based WASM loading | ⏳ Improvement planned | Works but uses more memory |
+| OTA socket timeout | Fix planned | Upload smaller firmware |
+| Max 2 concurrent running apps | By design | Adequate for embedded use |
+| Single HTTP connection | Fix planned | Queue uploads sequentially |
+| No app signing | Future feature | Manual verification |
+| File-based WASM loading | Improvement planned | Works but uses more peak memory |
 
 Fixes for these are tracked in [GitHub Issues](https://github.com/ArturR0k3r/AkiraOS/issues).
 

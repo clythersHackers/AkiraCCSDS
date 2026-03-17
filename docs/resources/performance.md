@@ -74,7 +74,7 @@ Performance metrics for AkiraOS on ESP32-S3.
 |--------|--------|---------------|------------|
 | Execution Speed | 1x | 0.3-0.5x | 0.6-0.8x |
 | Memory Overhead | - | +32KB runtime | +32KB runtime |
-| Safety | ⚠️ Unsafe | ✅ Sandboxed | ✅ Sandboxed |
+| Safety | No sandboxing | Sandboxed | Sandboxed |
 
 ---
 
@@ -82,15 +82,15 @@ Performance metrics for AkiraOS on ESP32-S3.
 
 **Custom Benchmarks:**
 ```bash
-uart:~$ benchmark native_call
-uart:~$ benchmark wasm_load
+AkiraOS:~$ benchmark native_call
+AkiraOS:~$ benchmark wasm_load
 ```
 
 **System Profiling:**
 ```bash
-uart:~$ kernel threads
-uart:~$ kernel stacks
-uart:~$ wasm status
+AkiraOS:~$ kernel threads
+AkiraOS:~$ kernel stacks
+AkiraOS:~$ wasm status
 ```
 
 ---

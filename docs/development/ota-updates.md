@@ -31,7 +31,7 @@ MCUboot verifies and swaps firmware images.
 
 Check new version:
 ```bash
-uart:~$ kernel version
+AkiraOS:~$ kernel version
 ```
 
 ## Rollback Protection

@@ -23,10 +23,6 @@ favicon_ico: "/AKIRAOS-LOGO-removebg-preview.png"
 # Social media preview
 image: /AKIRAOS-LOGO.png
 author: AkiraOS Team
-social:
-  name: AkiraOS
-  links:
-    - https://github.com/ArturR0k3r/AkiraOS
 
 # Build settings
 markdown: kramdown
@@ -160,13 +156,6 @@ defaults:
     values:
       layout: default
       parent: Resources
-
-# SEO
-#WIP: Add more SEO settings as needed
-social:
-  name: AkiraOS
-  links:
-    - https://github.com/ArturR0k3r/AkiraOS
 
 # GitHub metadata
 repository: ArturR0k3r/AkiraOS

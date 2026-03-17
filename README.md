@@ -13,13 +13,13 @@
 
 *A production-ready embedded OS combining Zephyr RTOS with WebAssembly sandboxed execution.*
 
-[Quick Start](#-quick-start) • [Architecture](#-architecture) • [Features](#-features) • [Documentation](#-documentation) • [Contributing](#-contributing)
+[Quick Start](#quick-start) • [Architecture](#architecture) • [Features](#features) • [Documentation](#documentation) • [Contributing](#contributing)
 
 </div>
 
 ---
 
-## 🎯 Overview
+## Overview
 
 AkiraOS is an embedded operating system designed for **secure, dynamic application execution** on resource-constrained devices. It leverages **WASM Micro Runtime (WAMR)** for sandboxed applications while maintaining real-time performance through **Zephyr RTOS**.
 
@@ -32,7 +32,7 @@ AkiraOS is an embedded operating system designed for **secure, dynamic applicati
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
 AkiraOS uses a **layered modular architecture** with three primary subsystems:
 
@@ -94,35 +94,35 @@ graph TB
 
 ---
 
-## ✨ Features
+## Features
 
 ### Runtime Capabilities
 
-- ✅ **WebAssembly Execution** – WAMR with AOT compilation support
-- ✅ **Direct-Stream Loading** – Zero-copy WASM module loading from network/storage
-- ✅ **Capability-Based Security** – Fine-grained permission system for native APIs
-- ✅ **PSRAM Memory Management** – Efficient heap allocation for large applications
-- ✅ **Native API Bridge** – Direct function calls (< 50ns latency)
+- **WebAssembly Execution** – WAMR with AOT compilation support
+- **Direct-Stream Loading** – Zero-copy WASM module loading from network/storage
+- **Capability-Based Security** – Fine-grained permission system for native APIs
+- **PSRAM Memory Management** – Efficient heap allocation for large applications
+- **Native API Bridge** – Direct function calls (< 50ns latency)
 
 ### Connectivity Stack
 
-- ✅ **WiFi HTTP Server** – Multipart file upload, JSON API, OTA endpoints
-- ✅ **Bluetooth HID** – Keyboard/mouse/gamepad support
-- ✅ **USB Mass Storage** – Drag-and-drop firmware updates
-- ✅ **OTA Manager** – Atomic firmware updates with signature verification
-- ✅ **Zero-Copy Data Paths** – Direct callback dispatch to consumers
+- **WiFi HTTP Server** – Multipart file upload, JSON API, OTA endpoints
+- **Bluetooth HID** – Keyboard/mouse/gamepad support
+- **USB Mass Storage** – Drag-and-drop firmware updates
+- **OTA Manager** – Atomic firmware updates with signature verification
+- **Zero-Copy Data Paths** – Direct callback dispatch to consumers
 
 ### System Features
 
-- ✅ **Dual-Boot Support** – MCUboot with fallback recovery
-- ✅ **File System** – LittleFS on flash with wear leveling
-- ✅ **Sensor Framework** – Unified API for environmental sensors
-- ✅ **Power Management** – Deep sleep modes with wake-on-event
-- ✅ **Shell Interface** – Debug console with command-line tools
+- **Dual-Boot Support** – MCUboot with fallback recovery
+- **File System** – LittleFS on flash with wear leveling
+- **Sensor Framework** – Unified API for environmental sensors
+- **Power Management** – Deep sleep modes with wake-on-event
+- **Shell Interface** – Debug console with command-line tools
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 
@@ -173,22 +173,22 @@ west espmonitor
 
 ---
 
-## 🎮 Supported Hardware
+## Supported Hardware
 
 | Platform | Status | Memory | Features |
 |----------|--------|--------|----------|
-| **ESP32-S3** | ✅ Primary | 512KB + 8MB PSRAM | WiFi, BLE, USB, Full OTA |
-| **ESP32** | ✅ Supported | 520KB RAM | WiFi, BLE, Limited PSRAM |
-| **ESP32-C3** | ✅ Supported | 400KB RAM | WiFi, BLE (RISC-V) |
-| **Native Sim** | ✅ Development | Host memory | Fast testing without hardware |
-| **nRF54L15** | 🚧 Experimental | 256KB RAM | Bluetooth LE, ARM Cortex-M33 |
-| **STM32** | 🚧 In Progress | Varies | B-U585I-IOT02A, STEVAL-STWINBX1 |
+| **ESP32-S3** | Primary | 512KB + 8MB PSRAM | WiFi, BLE, USB, Full OTA |
+| **ESP32** | Supported | 520KB RAM | WiFi, BLE, Limited PSRAM |
+| **ESP32-C3** | Supported | 400KB RAM | WiFi only by default (BLE disabled to save RAM) |
+| **Native Sim** | Development | Host memory | Fast testing without hardware |
+| **nRF54L15** | Experimental | 256KB RAM | Bluetooth LE, ARM Cortex-M33 |
+| **STM32** | Experimental | Varies | B-U585I-IOT02A, STEVAL-STWINBX1 |
 
 **Recommended:** ESP32-S3 DevKitM for full feature support and optimal performance.
 
 ---
 
-## 🔧 Build System
+## Build System
 
 ### Build Scripts
 
@@ -217,7 +217,7 @@ Key configuration files:
 
 ---
 
-## 🔒 Security Model
+## Security Model
 
 AkiraOS implements **defense-in-depth** security:
 
@@ -232,7 +232,7 @@ AkiraOS implements **defense-in-depth** security:
 ```c
 // Apps must request permissions via manifest
 {
-  "capabilities": ["log.write", "storage.read", "display.draw"]
+  "capabilities": ["storage.read", "display.write"]
 }
 ```
 
@@ -250,7 +250,7 @@ AkiraOS implements **defense-in-depth** security:
 
 ---
 
-## 🛠️ Development Workflow
+## Development Workflow
 
 ### 1. Local Development
 
@@ -278,7 +278,7 @@ curl -X POST -F "file=@bin/hello_world.wasm" http://<device-ip>/upload
 
 ---
 
-## 🤝 Contributing
+## Contributing
 
 We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
@@ -298,28 +298,27 @@ We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guid
 
 ---
 
-## 📜 License
+## License
 
 AkiraOS is licensed under the **GNU General Public License v3.0**. See [LICENSE](LICENSE) for details.
 
 ### Third-Party Components
 
-- **Zephyr RTOS** 
+- **Zephyr RTOS**
 - **WASM Micro Runtime (WAMR)**
 - **MCUboot**
 - **ESP-IDF Components**
 
 ---
 
-## 💬 Community
+## Community
 
 - **GitHub Issues:** [Report bugs](https://github.com/ArturR0k3r/AkiraOS/issues)
 - **Discussions:** [Ask questions](https://github.com/ArturR0k3r/AkiraOS/discussions)
-- **Wiki:** [Community documentation](https://docs.akiraos.dev/)
 
 ---
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 Built on the shoulders of giants:
 
@@ -327,13 +326,3 @@ Built on the shoulders of giants:
 - **Bytecode Alliance** – WAMR excellence
 - **Espressif Systems** – ESP32 SDK and tools
 - **Nordic Semiconductor** – nRF development tools
-
----
-
-<div align="center">
-
-**Made with ❤️ by the AkiraOS Team**
-
-[⬆ Back to Top](#akiraos)
-
-</div> 

@@ -36,16 +36,14 @@ There are **two API layers** in AkiraOS:
 
 ### API Categories
 
-| Category | Native Functions | Purpose |
-|----------|------------------|---------|
-| [Logging](#logging-api) | `log_info`, `log_debug`, `log_error` | Debug output |
-| [Memory](#memory-api) | `malloc`, `free` | Heap allocation |
-| [Time](#time-api) | `get_time_ms`, `sleep_ms` | Timing |
-| [Display](#display-api) | `display_write` | Framebuffer write |
-| [Input](#input-api) | `input_read_buttons`, `input_button_pressed` | Button/input |
-| [GPIO](#gpio-api) | `gpio_configure`, `gpio_read`, `gpio_write` | GPIO control |
-| [File I/O](#file-io-api) | `file_read`, `file_write` | LittleFS access |
-| [System](#system-api) | `sys_info` | System info |
+| Category | Key Functions | Purpose |
+|----------|---------------|---------|
+| [Logging](#logging-api) | `log_info`, `log_debug`, `log_error`, `printf` | Debug output |
+| [Display](#display-api) | `display_clear`, `display_text`, `display_rect`, `display_flush` | Framebuffer |
+| [GPIO](#gpio-api) | `gpio_configure`, `gpio_read`, `gpio_write` | Pin control and input |
+| [Storage](#storage-api) | `storage_open`, `storage_read`, `storage_write`, `storage_close` | File I/O |
+| [Timer](#timer-api) | `timer_create`, `timer_start`, `timer_elapsed`, `delay` | Timing |
+| [Memory](#memory-api) | `mem_alloc`, `mem_free` | Heap allocation |
 
 ## Import Module
 
@@ -220,42 +218,52 @@ extern int akira_rf_recv(uint8_t *buffer, uint32_t max_len);
 
 ---
 
-## File System API
+## Storage API
 
-### `fs_read`
-Read file contents.
+Storage functions operate within a per-app sandbox. Paths are relative to the app's data directory. Path traversal (`..`) is rejected with `-EACCES`.
+
+### `storage_open`
+Open a file in the app sandbox.
 
 ```c
-extern int akira_fs_read(const char *path, uint8_t *buffer, uint32_t max_len);
+extern int storage_open(const char *path, int flags);
 ```
 
-**Capability Required:** `CAP_FS_READ`
+**Capability Required:** `storage.read` (read flags) or `storage.write` (write flags)
 
-**Path Restriction:** Apps can only access `/data/<app_name>/`
+**Flags:** `STORAGE_O_READ` (0), `STORAGE_O_WRITE` (1), `STORAGE_O_APPEND` (2), `STORAGE_O_RDWR` (3)
 
 ---
 
-### `fs_write`
-Write file contents.
+### `storage_read` / `storage_write` / `storage_close`
 
 ```c
-__attribute__((import_module("akira")))
-__attribute__((import_name("fs_write")))
-extern int akira_fs_write(const char *path, const uint8_t *data, uint32_t len);
+extern int  storage_read(int fd, void *buf, int len);
+extern int  storage_write(int fd, const void *buf, int len);
+extern void storage_close(int fd);
 ```
-
-**Capability Required:** `CAP_FS_WRITE`
 
 ---
 
-### `fs_stat`
-Get file information.
+### `storage_delete`
+Delete a file from the app sandbox.
 
 ```c
-extern int akira_fs_stat(const char *path, uint32_t *size);
+extern int storage_delete(const char *path);
 ```
 
-**Returns:** 0 if file exists, -1 otherwise
+**Capability Required:** `storage.write`
+
+---
+
+### `storage_list`
+List files in sandbox directory.
+
+```c
+extern int storage_list(const char *path, char *buf, int len);
+```
+
+**Returns:** Newline-separated list of filenames, NUL-terminated.
 
 ---
 

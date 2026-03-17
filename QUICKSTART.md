@@ -198,11 +198,11 @@ Expected boot output:
 ```
 *** Booting Zephyr OS build v4.3.0 ***
 [00:00:00.123] <inf> main: AkiraOS v1.4.9 Gl1tch starting...
-[00:00:00.234] <inf> runtime: WAMR initialized (AOT enabled)
+[00:00:00.234] <inf> runtime: WAMR initialized
 [00:00:00.345] <inf> connectivity: WiFi stack ready
 [00:00:00.456] <inf> main: System initialized successfully
 
-uart:~$
+AkiraOS:~$
 ```
 
 Press **Tab** to see available shell commands.
@@ -214,12 +214,12 @@ Press **Tab** to see available shell commands.
 ### Explore the shell
 
 ```bash
-uart:~$ kernel version   # Zephyr version
-uart:~$ kernel uptime    # uptime
-uart:~$ wasm status      # running WASM apps
-uart:~$ net iface        # network status
-uart:~$ fs ls /          # file system
-uart:~$ help             # full command list
+AkiraOS:~$ kernel version   # Zephyr version
+AkiraOS:~$ kernel uptime    # uptime
+AkiraOS:~$ wasm status      # running WASM apps
+AkiraOS:~$ net iface        # network status
+AkiraOS:~$ fs ls /          # file system
+AkiraOS:~$ help             # full command list
 ```
 
 ### Upload a WASM application
@@ -249,10 +249,12 @@ curl -X POST -F "firmware=@../build-esp32s3-devkitm-esp32s3-procpu/zephyr/zephyr
 
 | Platform | CPU | RAM | PSRAM | WiFi | BLE | USB | Best for |
 |----------|-----|-----|-------|------|-----|-----|----------|
-| **ESP32-S3** | 2× Xtensa @ 240 MHz | 512 KB | 8 MB | ✅ | ✅ | ✅ | **Primary target** |
-| **ESP32** | 2× Xtensa @ 240 MHz | 520 KB | Limited | ✅ | ✅ | ❌ | Legacy |
-| **ESP32-C3** | RISC-V @ 160 MHz | 400 KB | ❌ | ✅ | ✅ | ✅ | Low-cost |
-| **native_sim** | Host CPU | Host | N/A | ❌ | ❌ | ❌ | Development |
+| **ESP32-S3** | 2× Xtensa @ 240 MHz | 512 KB | 8 MB | Yes | Yes | Yes | **Primary target** |
+| **ESP32** | 2× Xtensa @ 240 MHz | 520 KB | Limited | Yes | Yes | No | Legacy |
+| **ESP32-C3** | RISC-V @ 160 MHz | 400 KB | No | Yes | No (see note) | Yes | Low-cost |
+| **native_sim** | Host CPU | Host | N/A | No | No | No | Development |
+
+> **ESP32-C3 note:** BLE is disabled by default (`CONFIG_BT=n`) because WiFi and BLE cannot run simultaneously within the 32KB heap budget. To enable BLE, disable WiFi and reduce WASM app memory quotas accordingly.
 
 ---
 
@@ -263,9 +265,9 @@ curl -X POST -F "firmware=@../build-esp32s3-devkitm-esp32s3-procpu/zephyr/zephyr
 Applied to all platforms:
 
 ```
-CONFIG_LOG_DEFAULT_LEVEL=4     # 4 = DEBUG
-CONFIG_HEAP_MEM_POOL_SIZE=262144  # 256 KB heap for large WASM apps
-CONFIG_WAMR_BUILD_AOT=y        # enable AOT execution
+CONFIG_LOG_DEFAULT_LEVEL=3     # 3 = INFO (default); set to 4 for DEBUG
+CONFIG_HEAP_MEM_POOL_SIZE=65536   # 64 KB kernel heap (global default)
+CONFIG_WAMR_AOT_SUPPORT=n      # AOT disabled globally; enabled per-board (e.g. akiraconsole)
 ```
 
 ### Board-specific settings (`boards/<board>.conf`)

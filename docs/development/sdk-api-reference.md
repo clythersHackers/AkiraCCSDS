@@ -24,21 +24,21 @@ Include the single SDK header in every app:
 
 | Group | Capability | Key Functions |
 |-------|-----------|---------------|
-| **Display** | `display.write` | `display_clear`, `display_flush`, `display_text`, `display_rect`, `display_circle`, `display_image` |
-| **GPIO** | `gpio.read` / `gpio.write` | `gpio_read`, `gpio_write`, `gpio_set_pull` |
-| **Sensors** | `sensor.read` | `sensor_read_accel`, `sensor_read_gyro`, `sensor_read_mag`, `sensor_read_temp` |
+| **Display** | `display.write` | `display_clear`, `display_flush`, `display_text`, `display_rect`, `display_circle` |
+| **GPIO** | `gpio.read` / `gpio.write` | `gpio_read`, `gpio_write`, `gpio_configure` |
+| **Sensors** | `sensor.read` | `sensor_read(channel)` |
 | **Timer** | `timer` | `timer_create`, `timer_start`, `timer_elapsed`, `delay` |
 | **BLE** | `ble` | `ble_init`, `ble_service_create`, `ble_char_create`, `ble_advertise`, `ble_event_pop` |
-| **HID** | `hid` | `hid_keyboard_send`, `hid_mouse_move`, `hid_gamepad_send`, `hid_consumer_send` |
-| **Storage** | `storage.read` / `storage.write` | `file_open`, `file_read`, `file_write`, `file_close`, `file_list` |
-| **Networking** | `network` | `net_connect`, `net_send`, `net_recv`, `net_close` |
-| **IPC** | `ipc` | `ipc_publish`, `ipc_subscribe`, `ipc_recv` |
+| **HID** | `hid` | `hid_key_press`, `hid_key_release`, `hid_mouse_move`, `hid_gamepad_press`, `hid_consumer_send` |
+| **Storage** | `storage.read` / `storage.write` | `storage_open`, `storage_read`, `storage_write`, `storage_close`, `storage_list` |
+| **Networking** | `network.*` | `net_open`, `net_connect`, `net_close`, `net_tx_bind`, `net_rx_bind`, `net_event_pop` |
+| **IPC** | `ipc` | `msg_publish`, `msg_subscribe`, `msg_recv`, `msg_try_recv` |
 | **UART** | `uart` | `uart_open`, `uart_write`, `uart_read`, `uart_close` |
-| **I2C** | `i2c` | `i2c_write`, `i2c_read` |
+| **I2C** | `i2c` | `i2c_write_reg`, `i2c_read_reg` |
 | **PWM** | `pwm` | `pwm_set` |
-| **System / Lifecycle** | `app.control` / `app.info` | `app_start`, `app_stop`, `app_list`, `sys_info` |
-| **Memory** | `memory` | `mem_alloc`, `mem_free` |
-| **Logging** | _(always available)_ | `log_info`, `log_debug`, `log_error` |
+| **Lifecycle** | `app.control` | `app_start`, `app_stop`, `app_list` |
+| **Memory** | _(always available)_ | `mem_alloc`, `mem_free` |
+| **Logging** | _(always available)_ | `printf()` (from `akira_api.h`) |
 
 ## Related Documentation
 

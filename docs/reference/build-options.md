@@ -1,3 +1,10 @@
+---
+layout: default
+title: Build Options Reference
+parent: Development
+nav_order: 10
+---
+
 # AkiraOS Build Options Reference
 
 AkiraOS uses Zephyr's Kconfig system for build-time configuration. These options allow you to tailor the firmware's storage, features, hardware capabilities, and limitations to fit resource-constrained boards.
@@ -17,10 +24,12 @@ Below is a subset of the critical AkiraOS features (`CONFIG_AKIRA_*`) and runtim
 
 | Config Flag | Default | Description |
 |---|---|---|
-| `CONFIG_MAX_CONTAINERS` | `8` | Max concurrent loaded WASM apps. (Increase needs more heap). |
-| `CONFIG_AKIRA_WASM_RUNTIME` | `n` | Enable WebAssembly runtime (WAMR). Usually defaults to `y` on standard boards. |
-| `CONFIG_WAMR_AOT_SUPPORT` | `n` | Enable WASM AOT compilation. Extremely recommended for CPU-heavy tasks (~40x faster) but costs flash space. |
-| `CONFIG_WAMR_HEAP_SIZE` | `262144`| WAMR global heap memory threshold. |
+| `CONFIG_MAX_CONTAINERS` | `8` | Max number of simultaneously loaded WASM modules (not the same as running apps). |
+| `CONFIG_AKIRA_APP_MAX_INSTALLED` | `8` | Max apps stored on flash. |
+| `CONFIG_AKIRA_APP_MAX_RUNNING` | `2` | Max concurrently running WASM apps. Increase only if memory allows. |
+| `CONFIG_AKIRA_WASM_RUNTIME` | `n`* | Enable WebAssembly runtime (WAMR). Set to `y` in `prj.conf` for all AkiraOS builds. |
+| `CONFIG_WAMR_AOT_SUPPORT` | `n` | Enable WASM AOT compilation. Recommended for CPU-heavy tasks but costs flash space. Only `akiraconsole` board enables this by default. |
+| `CONFIG_WAMR_HEAP_SIZE` | `262144`| WAMR heap size in bytes (Kconfig default). Overridden per-board: ESP32-S3 uses 1 MB, ESP32 uses 32 KB. |
 | `CONFIG_AKIRA_WASM_APP_STACK_SIZE`| `8192`| Stack size per WASM app thread (SRAM only). |
 | `CONFIG_AKIRA_APP_MANAGER` | `y` | Enable App Manager for lifecycle (install/run WASM apps). |
 
@@ -55,8 +64,8 @@ Toggle these flags to export particular native APIs into the WASM sandboxes. If 
 | `CONFIG_AKIRA_WASM_POWER` | `y` | Power sensing API. |
 | `CONFIG_AKIRA_WASM_POWER_CONTROL`| `n` | Restricted power control API (e.g., Deep Sleep commands). |
 | `CONFIG_AKIRA_WASM_HID` | `n` | Export Human Interface Device API to WASM. |
-| `CONFIG_AKIRA_WASM_LIFECYCLE` | `n` | Export app manipulation API (`app_start`, `app_stop`). |
-| `CONFIG_AKIRA_WASM_IPC` | `n` | Export Pub/Sub IPC API. |
+| `CONFIG_AKIRA_WASM_LIFECYCLE` | `y` | Export app manipulation API (`app_start`, `app_stop`). |
+| `CONFIG_AKIRA_WASM_IPC` | `y` | Export Pub/Sub IPC API. |
 
 ### Storage & Settings
 

@@ -20,11 +20,11 @@ Complete setup and configuration guide for ESP32-S3 DevKitM.
 
 ### Why ESP32-S3?
 
-✅ **Large PSRAM** - 8MB supports multiple concurrent WASM apps  
-✅ **Dual Connectivity** - WiFi + Bluetooth  
-✅ **USB Support** - Native USB without external chip  
-✅ **Affordable** - ~$5 USD  
-✅ **Well-Supported** - Mature ESP-IDF + Zephyr integration  
+- **Large PSRAM** — 8 MB supports multiple concurrent WASM apps
+- **Dual Connectivity** — WiFi + Bluetooth
+- **USB Support** — Native USB without external chip
+- **Affordable** — ~$5 USD
+- **Well-Supported** — Mature ESP-IDF + Zephyr integration
 
 ---
 
@@ -129,12 +129,12 @@ CONFIG_HEAP_MEM_POOL_SIZE=262144  # 256KB WASM heap
 ### Peripherals
 
 **Available on ESP32-S3:**
-- ✅ I2C (sensors)
-- ✅ SPI (display, SD card)
-- ✅ UART (console, GPS)
-- ✅ ADC (analog sensors)
-- ✅ PWM (motors, LEDs)
-- ✅ GPIO (digital I/O)
+- I2C (sensors)
+- SPI (display, SD card)
+- UART (console, GPS)
+- ADC (analog sensors)
+- PWM (motors, LEDs)
+- GPIO (digital I/O)
 
 **Pin Configuration:** Edit device tree overlay
 
@@ -291,8 +291,8 @@ gdb-multiarch build/zephyr/zephyr.elf
 
 **Debug:**
 ```bash
-uart:~$ net iface
-uart:~$ wifi scan
+AkiraOS:~$ net iface
+AkiraOS:~$ wifi scan
 ```
 
 ### OTA Timeout
@@ -302,13 +302,13 @@ uart:~$ wifi scan
 **Workaround:**
 - Use wired connection
 - Reduce firmware size (`CONFIG_SIZE_OPTIMIZATIONS=y`)
-- Wait for improved OTA (see IMPLEMENTATION_TASKS.md)
+- Monitor future releases for improved OTA reliability
 
 ### PSRAM Not Detected
 
 **Check:**
 ```bash
-uart:~$ kernel heap
+AkiraOS:~$ kernel heap
 # Should show ~256KB PSRAM heap
 ```
 

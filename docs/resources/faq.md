@@ -48,7 +48,7 @@ A: 256KB, but 512KB+ recommended for multiple apps.
 A: Highly recommended for running multiple WASM apps (4+MB).
 
 **Q: Can I use custom hardware?**  
-A: Yes, if Zephyr supports it. See [Porting Guide](../development/porting.md).
+A: Yes, if Zephyr supports the target board. Add a board overlay and `.conf` file under `boards/`.
 
 ---
 

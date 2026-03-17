@@ -7,10 +7,10 @@ Modular connectivity subsystem for WiFi, Bluetooth, USB, and OTA operations with
 The connectivity layer provides protocol managers (HTTP, Bluetooth, OTA) that route data to system consumers (Runtime, File System, App Loader) via a callback-based transport interface.
 
 **Key Features:**
-- 🔄 Transport interface for pluggable consumers
-- 🚀 Reduced data copies (2 instead of 4 for OTA)
-- 💾 Lower stack usage (4KB instead of 9KB total)
-- 🔗 Decoupled transports from consumers via callbacks
+- Transport interface for pluggable consumers
+- Reduced data copies (2 instead of 4 for OTA)
+- Lower stack usage (4 KB instead of 9 KB total)
+- Transports decoupled from consumers via callbacks
 
 ```mermaid
 graph TB
@@ -172,11 +172,11 @@ sequenceDiagram
     MCU->>MCU: Boot new firmware
 ```
 
-**Improvements:**
-- ✅ Direct flash writes (no message queue)
-- ✅ 2 data copies (down from 4)
-- ✅ <10s completion time for 1.1MB firmware
-- ✅ No 120s timeout issues
+**Characteristics:**
+- Direct flash writes (no message queue overhead)
+- 2 data copies (reduced from 4)
+- <10 s completion time for 1.1 MB firmware
+- Configurable socket receive timeout (no hard 120 s limit)
 
 ### App Loader
 
@@ -401,7 +401,7 @@ Low-latency mesh networking for inter-device communication.
 - WASM app distribution across mesh
 - Low-power sensor network support
 
-**Status:** 🚧 Planned for v2.0
+**Status:** Planned
 
 ## Data Flow
 
@@ -459,9 +459,8 @@ CONFIG_AKIRA_HID_MANAGER=y
 4. **Performance** - Direct writes, minimal copies
 5. **Simplicity** - Array-based registry, no complex dispatch tables
 
-## Future Improvements
+## Planned Improvements
 
-See [Implementation Tasks](../../IMPLEMENTATION_TASKS.md) for planned enhancements:
 - Zero-copy network streaming to PSRAM
 - Shared network buffer pool
 - Concurrent HTTP connections

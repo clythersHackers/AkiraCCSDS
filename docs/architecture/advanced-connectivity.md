@@ -1,5 +1,7 @@
 # Advanced Connectivity Layer
 
+> **Status:** Matter, Thread, and AkiraMesh are planned/optional features. They require additional west.yml modules and are not enabled in the default `prj.conf`. Standard WiFi and BLE connectivity is documented in [Connectivity Layer](connectivity.md).
+
 Hardware-agnostic implementation of Matter, Thread, and AkiraMesh protocols for AkiraOS.
 
 ## Architecture Overview
@@ -157,11 +159,9 @@ mesh stop            # Stop mesh
 
 | Platform | WiFi | BLE | 802.15.4 | Matter | Thread | AkiraMesh |
 |----------|------|-----|----------|--------|--------|-----------|
-| ESP32-S3 | ✅   | ✅   | ❌       | ✅ WiFi | ❌     | ✅ BLE    |
-| nRF54L15 | ❌   | ✅   | ✅       | ✅ Thread | ✅   | ✅ Both   |
-| native_sim | ❌ | ⚠️   | ❌       | ❌     | ❌     | ⚠️ BLE    |
-
-✅ = Fully supported | ⚠️ = Simulated/Limited | ❌ = Not available
+| ESP32-S3 | Yes | Yes | No | Yes (WiFi transport) | No | Yes (BLE) |
+| nRF54L15 | No | Yes | Yes | Yes (Thread transport) | Yes | Yes (BLE + 802.15.4) |
+| native_sim | No | Simulated | No | No | No | Simulated |
 
 ## Usage Examples
 

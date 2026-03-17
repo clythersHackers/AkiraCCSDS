@@ -66,7 +66,7 @@ AkiraOS can run on custom hardware with:
 - 2MB+ flash
 - Optional PSRAM for multiple apps
 
-See [Porting Guide](../development/porting.md) for details.
+Add board overlays and configuration files under the `boards/` directory to target new hardware.
 
 ---
 
