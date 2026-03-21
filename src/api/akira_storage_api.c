@@ -1,292 +1,379 @@
-/**
- * @file akira_storage_api.c
- * @brief Storage API implementation for WASM exports
+/*
+ * Copyright (c) 2026 AkiraOS Contributors
+ * SPDX-License-Identifier: GPL-3.0-only
  */
 
-#include "akira_api.h"
-#include "../storage/fs_manager.h"
+#define LOG_MODULE_NAME akira_storage_api
 #include <zephyr/logging/log.h>
+LOG_MODULE_REGISTER(akira_storage_api, CONFIG_AKIRA_LOG_LEVEL);
+
+/**
+ * @file akira_storage_api.c
+ * @brief Sandboxed file-storage WASM native API.
+ *
+ * Each app is confined to:
+ *   <best_mount>/apps/<app_name>/
+ *   SD card preferred; falls back to LittleFS, then RAM.
+ *
+ * Path traversal ("..") is rejected with -EACCES.
+ * Max CONFIG_AKIRA_WASM_STORAGE_MAX_FDS concurrent open files (default 8).
+ */
+
+#ifdef CONFIG_AKIRA_WASM_STORAGE
+
+#include "akira_storage_api.h"
+#include <runtime/security.h>
+#include <runtime/akira_runtime.h>
+#include <storage/fs_manager.h>
+#include <zephyr/kernel.h>
 #include <zephyr/fs/fs.h>
 #include <string.h>
 #include <stdio.h>
+#include <errno.h>
 
-LOG_MODULE_REGISTER(akira_storage_api, LOG_LEVEL_INF);
+#ifndef CONFIG_AKIRA_WASM_STORAGE_MAX_FDS
+#define CONFIG_AKIRA_WASM_STORAGE_MAX_FDS 8
+#endif
 
-// TODO: Add capability check before each API call 
-// TODO: Implement per-app storage isolation 
-// TODO: Add quota enforcement 
-// TODO: Add encryption for sensitive data
-// TODO: Add wear leveling statistics
+/* --------------------------------------------------------------------------
+ * File descriptor table
+ * -------------------------------------------------------------------------- */
 
-#define APP_STORAGE_BASE "/lfs/apps"
-#define MAX_PATH_LEN 128
+typedef struct {
+    bool               open;
+    wasm_module_inst_t owner;
+    struct fs_file_t   zfile;
+} storage_fd_t;
 
-// TODO: Get container name from OCRE context 
-static const char *get_current_app_name(void)
+static storage_fd_t  s_fds[CONFIG_AKIRA_WASM_STORAGE_MAX_FDS];
+static K_MUTEX_DEFINE(s_fd_mutex);
+
+static int fd_alloc(wasm_module_inst_t owner)
 {
-    return "default_app";
+    for (int i = 0; i < CONFIG_AKIRA_WASM_STORAGE_MAX_FDS; i++) {
+        if (!s_fds[i].open) {
+            s_fds[i].open  = true;
+            s_fds[i].owner = owner;
+            fs_file_t_init(&s_fds[i].zfile);
+            return i;
+        }
+    }
+    return -EMFILE;
 }
 
-static int sanitize_path(const char *path)
+static storage_fd_t *fd_get(wasm_module_inst_t owner, int32_t fd)
 {
+    if (fd < 0 || fd >= CONFIG_AKIRA_WASM_STORAGE_MAX_FDS) {
+        return NULL;
+    }
+    storage_fd_t *h = &s_fds[fd];
+    if (!h->open || h->owner != owner) {
+        return NULL;
+    }
+    return h;
+}
+
+static void fd_release(storage_fd_t *h)
+{
+    if (h) {
+        fs_close(&h->zfile);
+        h->open  = false;
+        h->owner = NULL;
+    }
+}
+
+/* --------------------------------------------------------------------------
+ * Sandbox path resolution
+ * -------------------------------------------------------------------------- */
+
+/**
+ * Resolve <relative> against the calling app's sandbox root.
+ * Returns -EACCES if ".." traversal is detected.
+ * Returns -EINVAL if app name cannot be determined.
+ */
+static int resolve_sandbox_path(wasm_exec_env_t exec_env,
+                                 const char *relative,
+                                 char *out, size_t out_len)
+{
+    if (!relative || !out || out_len == 0) {
+        return -EINVAL;
+    }
+
+    /* Reject any "../" traversal attempt */
+    if (strstr(relative, "..") != NULL) {
+        LOG_WRN("storage: path traversal rejected: %s", relative);
+        return -EACCES;
+    }
+
+    /* Identify calling app */
+    wasm_module_inst_t inst = wasm_runtime_get_module_inst(exec_env);
+    if (!inst) {
+        return -EINVAL;
+    }
+
+    char app_name[32] = {0};
+    if (akira_runtime_get_name_for_module_inst(inst, app_name, sizeof(app_name)) < 0
+        || app_name[0] == '\0') {
+        LOG_ERR("storage: cannot identify calling app");
+        return -EINVAL;
+    }
+
+    /* Choose best mount point via fs_manager */
+    app_storage_ctx_t ctx;
+    int ret = fs_manager_alloc_app_storage(app_name, 0, &ctx);
+    if (ret < 0) {
+        return ret;
+    }
+
+    /* ctx.storage_path = "<mount>/apps/<name>" — create data subdir as sandbox */
+    char sandbox[sizeof(ctx.storage_path) + 8];
+    snprintf(sandbox, sizeof(sandbox), "%s", ctx.storage_path);
+
+    /* Ensure sandbox directory exists */
+    (void)fs_manager_mkdir(sandbox);
+
+    /* Build final path */
+    if (relative[0] == '\0' || (relative[0] == '/' && relative[1] == '\0')) {
+        /* Empty or "/" → root of sandbox */
+        snprintf(out, out_len, "%s", sandbox);
+    } else {
+        const char *rel = (relative[0] == '/') ? relative + 1 : relative;
+        snprintf(out, out_len, "%s/%s", sandbox, rel);
+    }
+
+    return 0;
+}
+
+/* --------------------------------------------------------------------------
+ * WASM native exports
+ * -------------------------------------------------------------------------- */
+
+int akira_native_storage_open(wasm_exec_env_t exec_env,
+                               const char *path, int32_t flags)
+{
+    /* Capability check depends on access mode */
+    uint32_t cap = (flags == STORAGE_O_READ) ? AKIRA_CAP_STORAGE_READ
+                                              : AKIRA_CAP_STORAGE_WRITE;
+    AKIRA_CHECK_CAP_OR_RETURN(exec_env, cap, -EPERM);
+
     if (!path || path[0] == '\0') {
-        return -1;
+        return -EINVAL;
     }
-    
-    // Reject absolute paths
-    if (path[0] == '/') {
-        LOG_ERR("Absolute paths not allowed: %s", path);
-        return -2;
+
+    char full_path[512];
+    int ret = resolve_sandbox_path(exec_env, path, full_path, sizeof(full_path));
+    if (ret < 0) {
+        return ret;
     }
-    
-    // Reject directory traversal attempts
-    if (strstr(path, "..") != NULL) {
-        LOG_ERR("Directory traversal attempted: %s", path);
-        return -3;
+
+    /* Map flags to Zephyr FS flags */
+    fs_mode_t zflags;
+    switch (flags) {
+    case STORAGE_O_READ:
+        zflags = FS_O_READ;
+        break;
+    case STORAGE_O_WRITE:
+        zflags = FS_O_WRITE | FS_O_CREATE;
+        break;
+    case STORAGE_O_APPEND:
+        zflags = FS_O_WRITE | FS_O_CREATE | FS_O_APPEND;
+        break;
+    case STORAGE_O_RDWR:
+        zflags = FS_O_READ | FS_O_WRITE | FS_O_CREATE;
+        break;
+    default:
+        return -EINVAL;
     }
-    
-    // Check path length
-    if (strlen(path) > MAX_PATH_LEN) {
-        LOG_ERR("Path too long: %s", path);
-        return -4;
+
+    k_mutex_lock(&s_fd_mutex, K_FOREVER);
+
+    wasm_module_inst_t inst = wasm_runtime_get_module_inst(exec_env);
+    int fd = fd_alloc(inst);
+    if (fd < 0) {
+        k_mutex_unlock(&s_fd_mutex);
+        LOG_WRN("storage: no free file descriptors");
+        return -EMFILE;
     }
-    
-    return 0;
+
+    /* Ensure parent directory exists */
+    char parent[sizeof(full_path)];
+    strncpy(parent, full_path, sizeof(parent) - 1);
+    parent[sizeof(parent) - 1] = '\0';
+    char *slash = strrchr(parent, '/');
+    if (slash && slash != parent) {
+        *slash = '\0';
+        (void)fs_manager_mkdir(parent);
+    }
+
+    /* Truncate on write (not append) */
+    ret = fs_open(&s_fds[fd].zfile, full_path, zflags);
+    if (ret < 0) {
+        LOG_DBG("storage_open(%s) failed: %d", full_path, ret);
+        s_fds[fd].open = false;
+        k_mutex_unlock(&s_fd_mutex);
+        return ret;
+    }
+
+    if (flags == STORAGE_O_WRITE || flags == STORAGE_O_RDWR) {
+        (void)fs_truncate(&s_fds[fd].zfile, 0);
+        (void)fs_seek(&s_fds[fd].zfile, 0, FS_SEEK_SET);
+    }
+
+    k_mutex_unlock(&s_fd_mutex);
+
+    LOG_DBG("storage_open fd=%d path=%s", fd, full_path);
+    return fd;
 }
 
-static int build_app_path(const char *path, char *out, size_t out_len)
+int akira_native_storage_read(wasm_exec_env_t exec_env,
+                               int32_t fd, void *buf, int32_t len)
 {
-    if (sanitize_path(path) < 0) {
-        return -1;
+    AKIRA_CHECK_CAP_OR_RETURN(exec_env, AKIRA_CAP_STORAGE_READ, -EPERM);
+
+    if (!buf || len <= 0) {
+        return -EINVAL;
     }
 
-    const char *app = get_current_app_name();
-    int ret = snprintf(out, out_len, "%s/%s/%s", APP_STORAGE_BASE, app, path);
+    k_mutex_lock(&s_fd_mutex, K_FOREVER);
 
-    if (ret < 0 || ret >= (int)out_len) {
-        LOG_ERR("Path buffer too small");
-        return -2;
+    wasm_module_inst_t inst = wasm_runtime_get_module_inst(exec_env);
+    storage_fd_t *h = fd_get(inst, fd);
+    if (!h) {
+        k_mutex_unlock(&s_fd_mutex);
+        return -EBADF;
     }
 
-    return 0;
+    ssize_t n = fs_read(&h->zfile, buf, (size_t)len);
+    k_mutex_unlock(&s_fd_mutex);
+
+    return (n < 0) ? (int)n : (int)n;
 }
 
-static int ensure_app_dir_exists(const char *app_name)
+int akira_native_storage_write(wasm_exec_env_t exec_env,
+                                int32_t fd, const void *buf, int32_t len)
 {
-    char app_dir[MAX_PATH_LEN];
-    snprintf(app_dir, sizeof(app_dir), "%s/%s", APP_STORAGE_BASE, app_name);
-    
-    struct fs_dirent entry;
-    int rc = fs_stat(app_dir, &entry);
-    
-    if (rc == 0) {
-        return 0; // Directory exists
+    AKIRA_CHECK_CAP_OR_RETURN(exec_env, AKIRA_CAP_STORAGE_WRITE, -EPERM);
+
+    if (!buf || len <= 0) {
+        return -EINVAL;
     }
-    
-    // Create directory
-    rc = fs_mkdir(app_dir);
-    if (rc < 0 && rc != -EEXIST) {
-        LOG_ERR("Failed to create app directory: %d", rc);
-        return rc;
+
+    k_mutex_lock(&s_fd_mutex, K_FOREVER);
+
+    wasm_module_inst_t inst = wasm_runtime_get_module_inst(exec_env);
+    storage_fd_t *h = fd_get(inst, fd);
+    if (!h) {
+        k_mutex_unlock(&s_fd_mutex);
+        return -EBADF;
     }
-    
-    return 0;
+
+    ssize_t n = fs_write(&h->zfile, buf, (size_t)len);
+    k_mutex_unlock(&s_fd_mutex);
+
+    return (n < 0) ? (int)n : (int)n;
 }
 
-int akira_storage_read(const char *path, void *buffer, size_t len)
+void akira_native_storage_close(wasm_exec_env_t exec_env, int32_t fd)
 {
-    // TODO: Check CAP_STORAGE_READ capability 
+    k_mutex_lock(&s_fd_mutex, K_FOREVER);
 
-    if (!path || !buffer || len == 0) {
-        return -EINVAL;
-    }
+    wasm_module_inst_t inst = wasm_runtime_get_module_inst(exec_env);
+    storage_fd_t *h = fd_get(inst, fd);
+    fd_release(h);
 
-    char full_path[MAX_PATH_LEN];
-    if (build_app_path(path, full_path, sizeof(full_path)) < 0) {
-        return -EINVAL;
-    }
-
-    LOG_DBG("storage_read: %s, max=%zu", full_path, len);
-
-    struct fs_file_t file;
-    fs_file_t_init(&file);
-    
-    int rc = fs_open(&file, full_path, FS_O_READ);
-    if (rc < 0) {
-        LOG_ERR("Failed to open file %s: %d", full_path, rc);
-        return rc;
-    }
-    
-    ssize_t bytes_read = fs_read(&file, buffer, len);
-    fs_close(&file);
-    
-    if (bytes_read < 0) {
-        LOG_ERR("Failed to read file %s: %d", full_path, (int)bytes_read);
-        return (int)bytes_read;
-    }
-    
-    LOG_DBG("Read %d bytes from %s", (int)bytes_read, path);
-    return (int)bytes_read;
+    k_mutex_unlock(&s_fd_mutex);
 }
 
-int akira_storage_write(const char *path, const void *data, size_t len)
+int akira_native_storage_delete(wasm_exec_env_t exec_env, const char *path)
 {
-    // TODO: Check CAP_STORAGE_WRITE capability 
-    // TODO: Check quota before writing 
+    AKIRA_CHECK_CAP_OR_RETURN(exec_env, AKIRA_CAP_STORAGE_WRITE, -EPERM);
 
-    if (!path || !data || len == 0) {
+    if (!path || path[0] == '\0') {
         return -EINVAL;
     }
 
-    const char *app = get_current_app_name();
-    ensure_app_dir_exists(app);
-
-    char full_path[MAX_PATH_LEN];
-    if (build_app_path(path, full_path, sizeof(full_path)) < 0) {
-        return -EINVAL;
+    char full_path[512];
+    int ret = resolve_sandbox_path(exec_env, path, full_path, sizeof(full_path));
+    if (ret < 0) {
+        return ret;
     }
 
-    LOG_DBG("storage_write: %s, len=%zu", full_path, len);
-
-    struct fs_file_t file;
-    fs_file_t_init(&file);
-    
-    int rc = fs_open(&file, full_path, FS_O_CREATE | FS_O_WRITE | FS_O_TRUNC);
-    if (rc < 0) {
-        LOG_ERR("Failed to open file %s for writing: %d", full_path, rc);
-        return rc;
+    ret = fs_unlink(full_path);
+    if (ret < 0 && ret != -ENOENT) {
+        LOG_DBG("storage_delete(%s) failed: %d", full_path, ret);
     }
-    
-    ssize_t bytes_written = fs_write(&file, data, len);
-    fs_close(&file);
-    
-    if (bytes_written < 0) {
-        LOG_ERR("Failed to write file %s: %d", full_path, (int)bytes_written);
-        return (int)bytes_written;
-    }
-    
-    LOG_INF("Wrote %d bytes to %s", (int)bytes_written, path);
-    return (int)bytes_written;
+    return ret;
 }
 
-int akira_storage_delete(const char *path)
+int akira_native_storage_list(wasm_exec_env_t exec_env,
+                               const char *path, void *buf, int32_t len)
 {
-    // TODO: Check CAP_STORAGE_WRITE capability 
+    AKIRA_CHECK_CAP_OR_RETURN(exec_env, AKIRA_CAP_STORAGE_READ, -EPERM);
 
-    if (!path) {
+    if (!buf || len <= 0) {
         return -EINVAL;
     }
 
-    char full_path[MAX_PATH_LEN];
-    if (build_app_path(path, full_path, sizeof(full_path)) < 0) {
-        return -EINVAL;
+    char dir_path[512];
+    int ret = resolve_sandbox_path(exec_env, path ? path : "", dir_path, sizeof(dir_path));
+    if (ret < 0) {
+        return ret;
     }
-
-    LOG_DBG("storage_delete: %s", full_path);
-
-    int rc = fs_unlink(full_path);
-    if (rc < 0) {
-        LOG_ERR("Failed to delete file %s: %d", full_path, rc);
-        return rc;
-    }
-    
-    LOG_INF("Deleted file: %s", path);
-    return 0;
-}
-
-int akira_storage_list(const char *path, char **files, int max_count)
-{
-    // TODO: Check CAP_STORAGE_READ capability 
-
-    if (!path || !files || max_count <= 0) {
-        return -EINVAL;
-    }
-
-    char full_path[MAX_PATH_LEN];
-    if (build_app_path(path, full_path, sizeof(full_path)) < 0) {
-        return -EINVAL;
-    }
-
-    LOG_DBG("storage_list: %s, max=%d", full_path, max_count);
 
     struct fs_dir_t dir;
     fs_dir_t_init(&dir);
-    
-    int rc = fs_opendir(&dir, full_path);
-    if (rc < 0) {
-        LOG_ERR("Failed to open directory %s: %d", full_path, rc);
-        return rc;
+
+    ret = fs_opendir(&dir, dir_path);
+    if (ret < 0) {
+        LOG_DBG("storage_list: opendir(%s) failed: %d", dir_path, ret);
+        return ret;
     }
-    
-    int count = 0;
+
+    char *out = (char *)buf;
+    int   pos = 0;
     struct fs_dirent entry;
-    
-    while (count < max_count) {
-        rc = fs_readdir(&dir, &entry);
-        if (rc < 0) {
-            break;
+
+    while (fs_readdir(&dir, &entry) == 0) {
+        if (entry.name[0] == '\0') {
+            break; /* end of directory */
         }
-        
-        if (entry.name[0] == 0) {
-            break; // End of directory
-        }
-        
-        // Skip . and ..
-        if (strcmp(entry.name, ".") == 0 || strcmp(entry.name, "..") == 0) {
+
+        /* Skip self/parent entries */
+        if (entry.name[0] == '.') {
             continue;
         }
-        
-        // Copy filename (files array must be pre-allocated)
-        if (files[count] != NULL) {
-            strncpy(files[count], entry.name, MAX_PATH_LEN - 1);
-            files[count][MAX_PATH_LEN - 1] = '\0';
-            count++;
+
+        size_t name_len = strlen(entry.name);
+        int    needed   = (int)name_len + 1; /* +1 for '\n' or ' /' '+'\n' */
+
+        if (entry.type == FS_DIR_ENTRY_DIR) {
+            needed += 1; /* trailing '/' */
         }
+
+        if (pos + needed + 1 >= len) { /* +1 for final NUL */
+            break;
+        }
+
+        memcpy(out + pos, entry.name, name_len);
+        pos += (int)name_len;
+
+        if (entry.type == FS_DIR_ENTRY_DIR) {
+            out[pos++] = '/';
+        }
+        out[pos++] = '\n';
     }
-    
+
     fs_closedir(&dir);
-    
-    LOG_DBG("Listed %d files in %s", count, path);
-    return count;
+
+    /* Null-terminate */
+    if (pos < len) {
+        out[pos] = '\0';
+    } else {
+        out[len - 1] = '\0';
+        pos = len;
+    }
+
+    return pos + 1; /* includes NUL */
 }
 
-int akira_storage_size(const char *path)
-{
-    // TODO: Check CAP_STORAGE_READ capability 
-
-    if (!path) {
-        return -EINVAL;
-    }
-
-    char full_path[MAX_PATH_LEN];
-    if (build_app_path(path, full_path, sizeof(full_path)) < 0) {
-        return -EINVAL;
-    }
-
-    struct fs_dirent entry;
-    int rc = fs_stat(full_path, &entry);
-    if (rc < 0) {
-        LOG_ERR("Failed to stat file %s: %d", full_path, rc);
-        return rc;
-    }
-
-    return (int)entry.size;
-}
-
-bool akira_storage_exists(const char *path)
-{
-    // TODO: Check CAP_STORAGE_READ capability 
-
-    if (!path) {
-        return false;
-    }
-
-    char full_path[MAX_PATH_LEN];
-    if (build_app_path(path, full_path, sizeof(full_path)) < 0) {
-        return false;
-    }
-
-    struct fs_dirent entry;
-    int rc = fs_stat(full_path, &entry);
-    return (rc == 0);
-}
+#endif /* CONFIG_AKIRA_WASM_STORAGE */

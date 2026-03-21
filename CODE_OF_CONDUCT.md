@@ -1,3 +1,8 @@
+<div align="center">
+
+<img src="assets/logo.png" alt="AkiraOS Logo" width="200"/>
+
+</div>
 
 # Contributor Code of Conduct
 

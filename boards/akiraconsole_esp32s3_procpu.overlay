@@ -1,0 +1,336 @@
+// Include required headers
+#include <zephyr/dt-bindings/gpio/gpio.h>
+#include <zephyr/dt-bindings/spi/spi.h>
+#include <zephyr/dt-bindings/mipi_dbi/mipi_dbi.h>
+
+// ============================================================================
+// PSRAM Configuration - ESP32-S3 N16R8 (8MB OPI PSRAM)
+// ============================================================================
+// The ESP32-S3 N16R8 module has 8MB external OPI PSRAM
+// This enables the psram0 node with the correct size for memory allocation
+&psram0 {
+    size = <DT_SIZE_M(8)>;
+    status = "okay";
+};
+
+// ============================================================================
+// SPI2 Configuration for LR1121 LoRa Transceiver and ST7789 Display
+// ============================================================================
+&pinctrl
+{
+    spim2_default: spim2_default {
+        group1 {
+            pinmux = <SPIM2_MISO_GPIO13>, // MISO - GPIO13
+                     <SPIM2_MOSI_GPIO11>, // MOSI - GPIO11
+                     <SPIM2_SCLK_GPIO12>; // SCK  - GPIO12
+        };
+    };
+
+    // I2C0: LSM6DS3 IMU (SDA=GPIO8, SCL=GPIO18)
+    i2cm0_default: i2cm0_default {
+        group1 {
+            pinmux = <I2C0_SDA_GPIO8>,
+                     <I2C0_SCL_GPIO18>;
+            bias-pull-up;
+            drive-open-drain;
+        };
+    };
+};
+
+&spi2
+{
+    status = "okay";
+    pinctrl-0 = <&spim2_default>;
+    pinctrl-names = "default";
+    clock-frequency = <80000000>; // 20 MHz for display (LR1121 will override with its own max)
+    
+    // CS GPIO array: GPIO38 for LR1121, GPIO10 for ST7789, GPIO14 for SD card
+    cs-gpios = <&gpio1 6 GPIO_ACTIVE_LOW>,  // CS0: GPIO38 for LR1121
+               <&gpio0 10 GPIO_ACTIVE_LOW>, // CS1: GPIO10 for ST7789 display
+               <&gpio0 14 GPIO_ACTIVE_LOW>; // CS2: GPIO14 for SD card (SD_CS)
+
+    // LR1121 as child of SPI2
+    lr1121_config: lr1121@0 {
+        compatible = "semtech,lr1121";
+        reg = <0>; // Chip select 0 (GPIO38)
+        status = "okay";
+        label = "LR1121";
+        spi-max-frequency = <10000000>; // 10 MHz max
+        cs-gpios = <&gpio1 6 GPIO_ACTIVE_LOW>;      // GPIO38 (on DIY version is GPIO37 but this is conf) - required by LR1121 binding
+        reset-gpios = <&gpio0 0 GPIO_ACTIVE_LOW>;   // GPIO0
+        busy-gpios = <&gpio1 4 (GPIO_ACTIVE_HIGH | GPIO_PULL_DOWN)>; // GPIO36 (36-32=4)
+        // IRQ optional - uncomment if connected:
+        // irq-gpios = <&gpio1 3 GPIO_ACTIVE_HIGH>;  // GPIO35 (35-32=3)
+    };
+
+    // ========================================================================
+    // SD Card — SPI-SDHC via CS2 (GPIO14)
+    // Wiring: MOSI=GPIO11, SCK=GPIO12, MISO=GPIO13, CS=GPIO14
+    // Enable with CONFIG_AKIRA_SD_CARD=y CONFIG_DISK_DRIVER_SDHC=y CONFIG_SDHC=y
+    // ========================================================================
+    spi_sdhc0: sdhc@2 {
+        compatible = "zephyr,sdhc-spi-slot";
+        reg = <2>;                              /* uses cs-gpios[2] = GPIO14 */
+        status = "okay";
+        spi-max-frequency = <25000000>;         /* 25 MHz max for SD card SPI */
+        mmc {
+            compatible = "zephyr,sdmmc-disk";
+            disk-name = "SD";
+            status = "okay";
+        };
+    };
+};
+
+/ {
+    // ST7789V is the default display for AkiraConsole.
+    // chosen and the MIPI DBI node are unconditional — `#if` inside a DTS
+    // root node is not reliably evaluated before label resolution.
+    // To use ILI9341 instead: set CONFIG_ILI9341=y (and drop CONFIG_ST7789V)
+    // in the board .conf; the ili9341 override block below will then replace
+    // the chosen pointer and add the ILI9341 child node.
+    chosen {
+        zephyr,display = &st7789v_akiraconsole;
+    };
+
+    mipi_dbi_ctrl: mipi_dbi_akiraconsole {
+        compatible = "zephyr,mipi-dbi-spi";
+        spi-dev = <&spi2>;
+        dc-gpios = <&gpio0 9 GPIO_ACTIVE_HIGH>;    // TFT_DC  - GPIO9
+        reset-gpios = <&gpio0 45 GPIO_ACTIVE_LOW>; // TFT_RST - GPIO45
+        write-only;
+        #address-cells = <1>;
+        #size-cells = <0>;
+
+        st7789v_akiraconsole: st7789v@1 {
+            compatible = "sitronix,st7789v";
+            mipi-max-frequency = <60000000>;
+            reg = <1>;
+            width = <320>;
+            height = <240>;
+            x-offset = <0>;
+            y-offset = <0>;
+            inversion-off;
+            vcom = <0x19>;
+            gctrl = <0x35>;
+            vrhs = <0x12>;
+            vdvs = <0x20>;
+            mdac = <0x68>;
+            gamma = <0x01>;
+            colmod = <0x55>;
+            lcm = <0x2c>;
+            porch-param = [0c 0c 00 33 33];
+            cmd2en-param = [5a 69 02 01];
+            pwctrl1-param = [a4 a1];
+            pvgam-param = [D0 04 0D 11 13 2B 3F 54 4C 18 0D 0B 1F 23];
+            nvgam-param = [D0 04 0C 11 13 2C 3F 44 51 2F 1F 1F 20 23];
+            ram-param = [00 F0];
+            rgb-param = [CD 08 14];
+            mipi-mode = "MIPI_DBI_MODE_SPI_4WIRE";
+        };
+    };
+};
+
+// ============================================================================
+// ILI9341 override — only active when CONFIG_ILI9341=y is in the board .conf.
+// Replaces the chosen pointer and adds a 2nd child to the shared MIPI DBI bus.
+// Pins are identical: DC=GPIO9, RST=GPIO45, CS=GPIO10 (reg=<1>).
+//
+// To activate:  uncomment CONFIG_ILI9341=y in akiraconsole_esp32s3_procpu.conf
+//               and comment out CONFIG_ST7789V=y
+// ============================================================================
+// ============================================================================
+// AkiraOS ILI9341 override — only active when CONFIG_AKIRA_ILI9341_DRIVER=y.
+//
+// Uses akira,ili9341 (direct SPI) instead of the upstream ilitek,ili9341
+// (MIPI DBI) driver whose init sequence leaves the display white.
+// Pins are identical: DC=GPIO9, RST=GPIO45, CS=GPIO10 (spi2 reg=1).
+//
+// To activate: set CONFIG_AKIRA_ILI9341_DRIVER=y in the board .conf and
+//              comment out CONFIG_ST7789V=y / CONFIG_MIPI_DBI_SPI=y.
+// ============================================================================
+#ifdef CONFIG_AKIRA_ILI9341_DRIVER
+/ {
+    chosen {
+        zephyr,display = &akira_ili9341_akiraconsole;
+    };
+};
+
+// Disable the MIPI DBI bus and ST7789V — direct SPI takes over CS1.
+&mipi_dbi_ctrl {
+    status = "disabled";
+};
+
+&spi2 {
+    akira_ili9341_akiraconsole: akira_ili9341@1 {
+        compatible = "akira,ili9341";
+        reg = <1>;                                 /* cs-gpios[1] = GPIO10 */
+        spi-max-frequency = <25000000>;
+        dc-gpios    = <&gpio0 9  GPIO_ACTIVE_HIGH>; /* TFT_DC  - GPIO9  */
+        reset-gpios = <&gpio0 45 GPIO_ACTIVE_LOW>;  /* TFT_RST - GPIO45 */
+        width  = <320>;
+        height = <240>;
+        status = "okay";
+    };
+};
+#endif /* CONFIG_AKIRA_ILI9341_DRIVER */
+
+// ============================================================================
+// GPIO Configuration
+// ============================================================================
+&gpio0
+{
+    status = "okay";
+};
+
+&gpio1
+{
+    status = "okay";
+};
+
+// ============================================================================
+// Button Configuration - Game Controller Layout
+// ============================================================================
+/ {
+    gpio_keys {
+        compatible = "gpio-keys";
+        
+        button_y: button_y {
+            gpios = <&gpio1 9 (GPIO_PULL_DOWN | GPIO_ACTIVE_HIGH)>; // GPIO41
+            label = "Button Y";
+            zephyr,code = <9>; // AKIRA_BTN_Y
+        };
+        
+        button_x: button_x {
+            gpios = <&gpio0 17 (GPIO_PULL_DOWN | GPIO_ACTIVE_HIGH)>; // GPIO17
+            label = "Button X";
+            zephyr,code = <8>; // AKIRA_BTN_X
+        };
+        
+        button_b: button_b {
+            gpios = <&gpio0 16 (GPIO_PULL_DOWN | GPIO_ACTIVE_HIGH)>; // GPIO16
+            label = "Button B";
+            zephyr,code = <7>; // AKIRA_BTN_B
+        };
+        
+        button_a: button_a {
+            gpios = <&gpio0 15 (GPIO_PULL_DOWN | GPIO_ACTIVE_HIGH)>; // GPIO15
+            label = "Button A";
+            zephyr,code = <6>; // AKIRA_BTN_A
+        };
+        
+        button_right: button_right {
+            gpios = <&gpio0 7 (GPIO_PULL_DOWN | GPIO_ACTIVE_HIGH)>; // GPIO7
+            label = "Button Right";
+            zephyr,code = <5>; // AKIRA_BTN_RIGHT
+        };
+        
+        button_left: button_left {
+            gpios = <&gpio0 6 (GPIO_PULL_DOWN | GPIO_ACTIVE_HIGH)>; // GPIO6
+            label = "Button Left";
+            zephyr,code = <4>; // AKIRA_BTN_LEFT
+        };
+        
+        button_down: button_down {
+            gpios = <&gpio0 5 (GPIO_PULL_DOWN | GPIO_ACTIVE_HIGH)>; // GPIO5
+            label = "Button Down";
+            zephyr,code = <3>; // AKIRA_BTN_DOWN
+        };
+        
+        button_up: button_up {
+            gpios = <&gpio0 4 (GPIO_PULL_DOWN | GPIO_ACTIVE_HIGH)>; // GPIO4
+            label = "Button Up";
+            zephyr,code = <2>; // AKIRA_BTN_UP
+        };
+    };
+};
+
+// WiFi configuration
+&wifi
+{
+    status = "okay";
+    // WiFi credentials will be managed by settings module
+};
+
+// UART configuration for shell and logging
+&uart0
+{
+    status = "okay";
+    current-speed = <115200>;
+};
+
+// I2C configuration - LSM6DS3 IMU on SDA=GPIO8, SCL=GPIO18
+&i2c0
+{
+    status = "okay";
+    pinctrl-0 = <&i2cm0_default>;
+    pinctrl-names = "default";
+    clock-frequency = <I2C_BITRATE_STANDARD>;
+
+    // LSM6DS3 6-axis IMU (accel + gyro)
+    // SA0 pulled high → I2C address 0x6B  WHO_AM_I = 0x69
+    lsm6ds3: lsm6ds3@6b {
+        compatible = "akira,lsm6ds3";
+        reg = <0x6b>;
+        status = "okay";
+    };
+};
+
+// USB Device Controller configuration
+&zephyr_udc0 {
+    status = "okay";
+    
+    hid_dev_0: hid_dev_0 {
+        compatible = "zephyr,hid-device";
+        protocol-code = "none";
+        in-polling-period-us = <1000>;
+        out-polling-period-us = <1000>;
+        in-report-size = <9>;
+        out-report-size = <2>;
+    };
+};
+
+/ {
+    fstab {
+		compatible = "zephyr,fstab";
+
+		lfs1: lfs1 {
+			compatible = "zephyr,fstab,littlefs";
+			read-size = <1>;
+			prog-size = <16>;
+			cache-size = <256>;
+			lookahead-size = <32>;
+			block-cycles = <512>;
+			partition = <&lfs1_partition>;
+			mount-point = "/lfs";
+		};
+	};
+};
+
+/* Route Zephyr settings NVS backend to our dedicated NVS partition.
+ * Required for CONFIG_BT_SETTINGS=y (bond persistence). */
+/ {
+    chosen {
+        zephyr,settings-partition = &akira_settings_nvs_partition;
+    };
+};
+
+// Flash memory partitions - add custom partitions to existing partition table
+// NOTE: The AMP partition table (partitions_0x0_amp_4M.dtsi) occupies
+// 0x000000–0x3FFFFF.  slot1_partition lives at 0x170000–0x2C0000.
+// Our custom partitions MUST be placed at 0x400000 or higher so that OTA
+// writes to slot1 do not overwrite NVS settings or the LittleFS filesystem.
+// The AkiraConsole module has 8 MB flash (esp32s3_mini_n8 = DT_SIZE_M(8)),
+// so 0x400000–0x7FFFFF is fully available for custom use.
+&flash0 {
+    partitions {
+        akira_settings_nvs_partition: partition@400000 {
+            label = "akira_settings_nvs";
+            reg = <0x00400000 DT_SIZE_K(32)>;
+        };
+
+        lfs1_partition: partition@408000 {
+			label = "lfs_storage";
+			reg = <0x00408000 DT_SIZE_K(512)>;
+		};
+    };
+};

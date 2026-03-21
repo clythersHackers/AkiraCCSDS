@@ -20,7 +20,7 @@
 #endif
 
 /* Logging module set at source level */
-LOG_MODULE_REGISTER(akira_hal, CONFIG_AKIRA_LOG_LEVEL);
+LOG_MODULE_REGISTER(akira_hal, LOG_LEVEL_DBG);
 
 #if AKIRA_PLATFORM_NATIVE_SIM
 /* Simulated display framebuffer (240x320 RGB565) */
@@ -118,12 +118,30 @@ int akira_hal_init(void)
 
 #elif AKIRA_PLATFORM_ESP32S3
     LOG_INF("Running on ESP32-S3 - full hardware support");
-#elif AKIRA_PLATFORM_ESP32
-    LOG_INF("Running on ESP32 - full hardware support");
-#else
-    LOG_WRN("Running on unknown platform");
+
+    /* Initialize hardware display — runs for any board with CONFIG_DISPLAY=y.
+     * display_hal will report ENOTSUP if no zephyr,display is in DT. */
+#if defined(CONFIG_DISPLAY)
+    {
+        int ret = akira_display_hal_init();
+        if (ret < 0 && ret != -ENOTSUP) {
+            LOG_WRN("Display HAL initialization failed: %d", ret);
+        }
+    }
 #endif
 
+#else 
+    LOG_INF("Running on ESP32 - full hardware support");
+
+#if defined(CONFIG_DISPLAY)
+    {
+        int ret = akira_display_hal_init();
+        if (ret < 0 && ret != -ENOTSUP) {
+            LOG_WRN("Display HAL initialization failed: %d", ret);
+        }
+    }
+#endif
+#endif /* Platform-specific initialization */
     return 0;
 }
 
@@ -133,30 +151,33 @@ int akira_hal_init(void)
 uint16_t *akira_framebuffer_get(void)
 {
 #if defined(CONFIG_AKIRA_FRAMEBUFFER_IN_PSRAM) && defined(CONFIG_MEMC)
+    LOG_DBG("Framebuffer get: returning PSRAM buffer at %p", hw_framebuffer);
     return hw_framebuffer;
 #else
+    LOG_WRN("Framebuffer get: no PSRAM framebuffer configured");
     return NULL;
 #endif
 }
 
 bool akira_has_display(void)
 {
-    return AKIRA_HAS_DISPLAY;
+    return IS_ENABLED(CONFIG_DISPLAY);
 }
 
 bool akira_has_wifi(void)
 {
-    return AKIRA_HAS_WIFI;
+    return IS_ENABLED(CONFIG_WIFI);
 }
 
 bool akira_has_spi(void)
 {
-    return AKIRA_HAS_SPI;
+    return IS_ENABLED(CONFIG_SPI);
 }
 
 bool akira_has_gpio(void)
 {
-    return AKIRA_HAS_REAL_GPIO;
+    /* native_sim uses simulated GPIO, not real hardware pins */
+    return !AKIRA_PLATFORM_NATIVE_SIM;
 }
 
 const char *akira_get_platform_name(void)
@@ -183,8 +204,15 @@ const struct device *akira_get_gpio_device(const char *label)
     static const struct device sim_gpio_dev;
     return &sim_gpio_dev;
 #elif AKIRA_PLATFORM_STM32
-    /* STM32 uses gpioa, gpiob, gpioc, etc. */
-    /* Return NULL - caller should use DT_ALIAS or specific GPIO port macros */
+    /* STM32 uses gpioa, gpiob, gpioc, etc. Try DT alias for generic gpio0 */
+    if (label && strcmp(label, "gpio0") == 0) {
+        const struct device *dev = DEVICE_DT_GET_OR_NULL(DT_NODELABEL(gpio0));
+        if (dev && device_is_ready(dev)) {
+            return dev;
+        }
+        LOG_WRN("gpio0 alias not available on this board");
+        return NULL;
+    }
     ARG_UNUSED(label);
     return NULL;
 #elif AKIRA_PLATFORM_NORDIC

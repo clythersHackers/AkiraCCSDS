@@ -1,0 +1,5 @@
+board:
+  name: esp32s3_super_mini
+  vendor: akira
+  socs:
+    - name: esp32s3

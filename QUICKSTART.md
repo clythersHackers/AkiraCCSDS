@@ -1,234 +1,322 @@
 # AkiraOS Quick Start Guide
 
+<div align="center">
+
+<img src="assets/logo.png" alt="AkiraOS Logo" width="250"/>
+
+**Get AkiraOS running in under 15 minutes**
+
+</div>
+
+---
+
 ## Prerequisites
 
-- **Linux/WSL2** (Ubuntu 20.04+ recommended)
-- **Python 3.8+**
-- **Git**
-- **West** (Zephyr's meta-tool): `pip install west`
-- **Zephyr SDK** (will be installed with west)
+| Requirement | Version | Install |
+|-------------|---------|---------|
+| **Linux / WSL2** | Ubuntu 20.04+ | [WSL setup](https://docs.microsoft.com/windows/wsl/install) |
+| **Python** | 3.8+ | `sudo apt install python3 python3-pip` |
+| **Git** | 2.25+ | `sudo apt install git` |
+| **CMake** | 3.20+ | `sudo apt install cmake` |
+| **Device Tree Compiler** | 1.4+ | `sudo apt install device-tree-compiler` |
+| **West** | Latest | `pip3 install west` |
 
-## 🚀 First Time Setup
-
-### Step 1: Clone Repository
+Install all required packages at once:
 
 ```bash
-# Create workspace directory (can be any name you prefer)
-cd ~ && mkdir akira-workspace && cd akira-workspace
+sudo apt update
+sudo apt install --no-install-recommends git cmake ninja-build gperf \
+  ccache dfu-util device-tree-compiler wget \
+  python3-dev python3-pip python3-setuptools python3-tk python3-wheel \
+  xz-utils file make gcc gcc-multilib g++-multilib libsdl2-dev libmagic1
 
-# Clone AkiraOS
+pip3 install --user -U west pyelftools
+
+# Add Python user bin to PATH (add to ~/.bashrc for persistence)
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+---
+
+## Step 1: Create Workspace
+
+AkiraOS uses a **West workspace** where Zephyr and other dependencies live alongside your project.
+
+```bash
+mkdir ~/akira-workspace && cd ~/akira-workspace
 git clone --recursive https://github.com/ArturR0k3r/AkiraOS.git
 cd AkiraOS
 ```
 
-**Note:** You can use any workspace directory name. The build system automatically detects 
-the workspace root and expects this structure: `<workspace>/AkiraOS` and `<workspace>/ocre`.
+---
 
-### Step 2: Initialize West Workspace
+## Step 2: Initialize West
 
-This fetches Zephyr RTOS, OCRE runtime, and all dependencies:
+West fetches Zephyr RTOS, MCUboot, HAL drivers, and all required modules (~500 MB).
 
 ```bash
-# Initialize west workspace
+# From inside AkiraOS/
 west init -l .
-
-# Move to workspace root
-cd ..
-
-# Update all dependencies (Zephyr, OCRE, modules)
-west update
+cd ..         # move to workspace root
+west update   # fetch all dependencies (~5–10 min)
 ```
 
-**What `west update` does:**
-- Fetches Zephyr RTOS v4.2.1
-- Fetches OCRE runtime from [project-ocre/ocre-runtime](https://github.com/project-ocre/ocre-runtime)
-- Downloads all Zephyr modules and dependencies
+After `west update`, your workspace looks like:
 
-### Step 3: Clone WASM-Micro-Runtime
-
-WASM-Micro-Runtime is **not tracked** in the AkiraOS repository (it's in `.gitignore`). 
-Clone it from the official Bytecode Alliance repository:
-
-```bash
-cd AkiraOS/modules
-
-# Clone WASM-Micro-Runtime from official repository
-git clone https://github.com/bytecodealliance/wasm-micro-runtime.git
-cd wasm-micro-runtime
-git submodule update --init --recursive
-cd ../..
+```
+~/akira-workspace/
+├── AkiraOS/          # your application (this repo)
+├── zephyr/           # Zephyr RTOS
+├── bootloader/       # MCUboot
+├── modules/          # Zephyr modules
+└── tools/            # build utilities
 ```
 
-**Why?**
-- WAMR is a large external dependency
-- Keeping it separate makes AkiraOS repo cleaner
-- You can easily update WAMR independently
-- OCRE also uses WAMR (as a submodule in `<workspace>/ocre/`)
+---
 
-### Step 4: Update OCRE Submodules
+## Step 3: Install Zephyr SDK
 
-OCRE has its own WASM-Micro-Runtime submodule that needs to be initialized:
+The Zephyr SDK provides cross-compilers for all supported architectures.
 
 ```bash
-# Update OCRE submodules (includes its own WAMR)
-cd ../ocre
-git submodule update --init --recursive
-cd ../AkiraOS
+cd ~
+wget https://github.com/zephyrproject-rtos/sdk-ng/releases/download/v0.17.4/zephyr-sdk-0.17.4_linux-x86_64.tar.xz
+tar xvf zephyr-sdk-0.17.4_linux-x86_64.tar.xz
+cd zephyr-sdk-0.17.4
+./setup.sh
 ```
 
-### Step 5: Fetch ESP32 Binary Blobs
+---
 
-Required for ESP32/ESP32-S3/ESP32-C3 platforms:
+## Step 4: Fetch ESP32 Blobs (ESP32 targets only)
+
+Required binary blobs for ESP32 WiFi/BLE firmware:
 
 ```bash
+cd ~/akira-workspace
 west blobs fetch hal_espressif
 ```
 
-### Step 6: Build and Flash
+Skip this step if you are only using `native_sim`.
+
+---
+
+## Step 5: Build and Test (Native Simulation)
+
+Native simulation runs AkiraOS on your host CPU — no hardware required. This is the recommended starting point.
 
 ```bash
-cd AkiraOS
+cd ~/akira-workspace/AkiraOS
+./build.sh          # builds native_sim and runs it automatically
+```
 
-# Build for ESP32-S3 (with MCUboot bootloader)
-./build_both.sh esp32s3
+The executable is at `../build-native-sim/zephyr/zephyr.exe` and is launched automatically after a successful build.
 
-# Flash to connected ESP32-S3
-./flash.sh
+**Advantages of native_sim:**
+- No flashing — instant feedback
+- GDB debugging support
+- Tests core logic without hardware
 
-# Monitor serial output
-west espmonitor
+**Limitations:**
+- No real WiFi / Bluetooth / peripherals
+- Simulated timing only
+
+---
+
+## Step 6: Build for Hardware
+
+Recommended board: **ESP32-S3 DevKitM** (full feature support).
+
+```bash
+cd ~/akira-workspace/AkiraOS
+
+# Build for ESP32-S3 (primary target)
+./build.sh -b esp32s3_devkitm_esp32s3_procpu
+
+# Or other supported boards:
+./build.sh -b esp32_devkitc_procpu    # ESP32 classic
+./build.sh -b esp32c3_devkitm        # ESP32-C3 (RISC-V)
+```
+
+Run `./build.sh -h` to see all available boards.
+
+Build output is placed at the workspace root:
+
+```
+~/akira-workspace/
+├── build-esp32s3-devkitm-esp32s3-procpu/
+│   └── zephyr/
+│       ├── zephyr.elf      # ELF binary
+│       ├── zephyr.bin      # raw firmware
+│       └── zephyr.hex      # Intel HEX
+└── build-native-sim/
+    └── zephyr/
+        └── zephyr.exe
 ```
 
 ---
 
-## 🔨 Build Commands
+## Step 7: Flash to Hardware
 
-### Build All Platforms
-
-```bash
-./build_all.sh           # Build all platforms (native_sim, ESP32-S3, ESP32, ESP32-C3)
-```
-
-**Individual platform builds:**
-The `build_all.sh` script automatically builds all four targets. To build specific platforms, 
-use west commands directly or modify the script.
-
-### Build with MCUboot Bootloader
+Connect your ESP32 board via USB, then:
 
 ```bash
-./build_both.sh esp32s3        # Build bootloader + app
-./build_both.sh esp32s3 clean  # Clean and build
-./build_both.sh esp32          # Build for ESP32
-./build_both.sh esp32c3        # Build for ESP32-C3
+# Build and flash application
+./build.sh -b esp32s3_devkitm_esp32s3_procpu -r a
+
+# Build, flash bootloader + application (first time or after MCUboot changes)
+./build.sh -b esp32s3_devkitm_esp32s3_procpu -bl y -r all
 ```
 
-### Flash to Hardware
+If the flash fails, check the serial port:
 
 ```bash
-# Auto-detect chip type and flash
-./flash.sh
-
-# Flash specific platform
-./flash.sh --platform esp32s3
-./flash.sh --platform esp32
-./flash.sh --platform esp32c3
-
-# Flash only application (faster updates)
-./flash.sh --app-only
-
-# Specify serial port
-./flash.sh --port /dev/ttyUSB0
+ls /dev/ttyUSB* /dev/ttyACM*
 ```
 
-### Native Simulation
+If you see "Permission denied", add yourself to the `dialout` group:
 
 ```bash
-# Build and run in one command
-./build_and_run.sh
-
-# Or manually
-./build_all.sh
-./build_native_sim/zephyr/zephyr.exe
-```
-
-**Note:** The build creates a `build_native_sim` directory at the workspace root 
-(`<workspace>/build_native_sim`), not inside the AkiraOS directory.
-
----
-
-## 📁 Workspace Structure After Setup
-
-```
-<workspace>/  (e.g., ~/akira-workspace/)
-├── AkiraOS/                    # Your application code
-│   ├── src/                    # Application source
-│   ├── boards/                 # Board-specific overlays
-│   ├── modules/                # Local modules
-│   │   ├── ocre/              # OCRE integration (CMake only)
-│   │   └── wasm-micro-runtime/ # WAMR module
-│   ├── build_*.sh              # Build scripts
-│   ├── flash.sh                # Flash script
-│   └── west.yml                # West manifest
-├── build_native_sim/           # Native sim build output
-├── build_esp32s3/              # ESP32-S3 build output
-├── build_esp32/                # ESP32 build output
-├── build_esp32c3/              # ESP32-C3 build output
-├── zephyr/                     # Zephyr RTOS (fetched by west)
-├── ocre/                       # OCRE runtime (fetched by west)
-│   └── wasm-micro-runtime/    # WAMR submodule (in ocre)
-├── bootloader/                 # MCUboot (fetched by west)
-├── modules/                    # Zephyr modules (fetched by west)
-└── tools/                      # Build tools (fetched by west)
-```
-
-**Important:** Build directories are created at workspace root (`<workspace>/`), not inside AkiraOS.
-
----
-
-## 🔄 Updating Dependencies
-
-### Update Zephyr and Modules
-
-```bash
-cd <workspace>  # Your workspace directory
-west update
-```
-
-### Update OCRE Submodules
-
-```bash
-cd <workspace>/ocre
-git pull origin main
-git submodule update --init --recursive
-```
-
-### Update WASM-Micro-Runtime
-
-```bash
-cd <workspace>/AkiraOS/modules/wasm-micro-runtime
-git pull origin main
-git submodule update --init --recursive
+sudo usermod -a -G dialout $USER
+# Log out and back in for the change to take effect
 ```
 
 ---
 
-## 🐛 Troubleshooting
+## Step 8: Verify Boot
+
+Monitor serial output:
+
+```bash
+west espmonitor              # ESP32 (recommended)
+# or:
+picocom -b 115200 /dev/ttyUSB0
+```
+
+Expected boot output:
+
+```
+*** Booting Zephyr OS build v4.3.0 ***
+[00:00:00.123] <inf> main: AkiraOS v1.4.9 Gl1tch starting...
+[00:00:00.234] <inf> runtime: WAMR initialized
+[00:00:00.345] <inf> connectivity: WiFi stack ready
+[00:00:00.456] <inf> main: System initialized successfully
+
+AkiraOS:~$
+```
+
+Press **Tab** to see available shell commands.
+
+---
+
+## Next Steps
+
+### Explore the shell
+
+```bash
+AkiraOS:~$ kernel version   # Zephyr version
+AkiraOS:~$ kernel uptime    # uptime
+AkiraOS:~$ wasm status      # running WASM apps
+AkiraOS:~$ net iface        # network status
+AkiraOS:~$ fs ls /          # file system
+AkiraOS:~$ help             # full command list
+```
+
+### Upload a WASM application
+
+```bash
+# Build a WASM app (requires WASI SDK — see AkiraSDK/README.md)
+cd ~/akira-workspace/AkiraOS/AkiraSDK/wasm_apps
+./build.sh hello_world
+# produces bin/hello_world.wasm
+
+# Upload to device over HTTP (device must be on WiFi)
+curl -X POST -F "file=@bin/hello_world.wasm" http://<device-ip>/upload
+```
+
+### Perform an OTA firmware update
+
+```bash
+cd ~/akira-workspace/AkiraOS
+./build.sh -b esp32s3_devkitm_esp32s3_procpu  # build new firmware
+curl -X POST -F "firmware=@../build-esp32s3-devkitm-esp32s3-procpu/zephyr/zephyr.bin" \
+  http://<device-ip>/ota/upload
+```
+
+---
+
+## Platform Comparison
+
+| Platform | CPU | RAM | PSRAM | WiFi | BLE | USB | Best for |
+|----------|-----|-----|-------|------|-----|-----|----------|
+| **ESP32-S3** | 2× Xtensa @ 240 MHz | 512 KB | 8 MB | Yes | Yes | Yes | **Primary target** |
+| **ESP32** | 2× Xtensa @ 240 MHz | 520 KB | Limited | Yes | Yes | No | Legacy |
+| **ESP32-C3** | RISC-V @ 160 MHz | 400 KB | No | Yes | No (see note) | Yes | Low-cost |
+| **native_sim** | Host CPU | Host | N/A | No | No | No | Development |
+
+> **ESP32-C3 note:** BLE is disabled by default (`CONFIG_BT=n`) because WiFi and BLE cannot run simultaneously within the 32KB heap budget. To enable BLE, disable WiFi and reduce WASM app memory quotas accordingly.
+
+---
+
+## Configuration
+
+### Global settings (`prj.conf`)
+
+Applied to all platforms:
+
+```
+CONFIG_LOG_DEFAULT_LEVEL=3     # 3 = INFO (default); set to 4 for DEBUG
+CONFIG_HEAP_MEM_POOL_SIZE=65536   # 64 KB kernel heap (global default)
+CONFIG_WAMR_AOT_SUPPORT=n      # AOT disabled globally; enabled per-board (e.g. akiraconsole)
+```
+
+### Board-specific settings (`boards/<board>.conf`)
+
+Override or extend global config per board:
+
+```
+CONFIG_NET_SOCKETS_SERVICE_STACK_SIZE=8192
+```
+
+### Interactive configuration
+
+```bash
+cd ~/akira-workspace/AkiraOS
+west build -t menuconfig   # TUI config browser
+```
+
+### WiFi credentials
+
+Set in `prj.conf` or the board-specific `.conf`:
+
+```
+CONFIG_WIFI_SSID="YourNetwork"
+CONFIG_WIFI_PSK="YourPassword"
+```
+
+---
+
+## Troubleshooting
 
 ### "west: command not found"
 
 ```bash
-pip3 install west
-# Or if that fails:
 pip3 install --user west
-export PATH="$HOME/.local/bin:$PATH"
+export PATH="$HOME/.local/bin:$PATH"  # add to ~/.bashrc for persistence
+west --version  # verify
 ```
 
-### "Permission denied" on Flash
+### "cmake: command not found"
 
 ```bash
-# Add user to dialout group
+sudo apt update && sudo apt install cmake ninja-build
+```
+
+### "Permission denied" when flashing
+
+```bash
 sudo usermod -a -G dialout $USER
-# Log out and back in for changes to take effect
+# Log out and back in, then retry
 ```
 
 ### "No module named 'elftools'"
@@ -237,65 +325,82 @@ sudo usermod -a -G dialout $USER
 pip3 install pyelftools
 ```
 
-### Build Fails with Submodule Errors
+### ESP32 flash fails with "Failed to connect"
+
+1. Verify serial port: `ls /dev/ttyUSB* /dev/ttyACM*`
+2. Manually enter download mode: hold **BOOT**, press **RESET**, release **BOOT**
+3. Flash with explicit port: `west flash --port /dev/ttyUSB0`
+4. Check USB cable (must carry data, not only power)
+
+### "west update" fails with network errors
 
 ```bash
-# Re-initialize all submodules
-cd <workspace>/ocre
-git submodule update --init --recursive --force
-
-cd <workspace>/AkiraOS/modules/wasm-micro-runtime
-git submodule update --init --recursive --force
+west update -v   # retry with verbose output
 ```
 
-### Clean Everything and Rebuild
+### Build fails with submodule errors
 
 ```bash
-cd <workspace>/AkiraOS
-rm -rf ../build_*
-./build_all.sh
+cd ~/akira-workspace/AkiraOS
+git submodule update --init --recursive --force
+git submodule status  # verify
 ```
 
-**Note:** Build directories are at workspace root (`<workspace>/build_*`), so clean from there.
+### "ZEPHYR_BASE not set" error
+
+```bash
+cd ~/akira-workspace/AkiraOS
+west init -l .
+cd ..
+west update
+```
+
+### Out of memory during build
+
+```bash
+# Limit parallel jobs
+MAKEFLAGS="-j2" ./build.sh -b esp32s3_devkitm_esp32s3_procpu
+```
+
+### native_sim crashes on startup
+
+```bash
+sudo apt install libsdl2-dev
+./build.sh -c && ./build.sh   # clean and rebuild
+```
+
+### Getting more help
+
+1. Enable verbose output: `west -v build`
+2. Check build logs in the build directory
+3. Search [GitHub Issues](https://github.com/ArturR0k3r/AkiraOS/issues)
+4. Ask in [GitHub Discussions](https://github.com/ArturR0k3r/AkiraOS/discussions)
+
+When reporting issues, include:
+- OS and version (`uname -a`)
+- West version (`west --version`)
+- Full build command and output
+- Board type
 
 ---
 
-## 🎯 Platform Selection Guide
+## Dive Deeper
 
-| Platform | Use Case | Memory | Cores |
-|----------|----------|--------|-------|
-| **ESP32-S3** | Primary Console | 512KB RAM + 8MB PSRAM | Dual Xtensa |
-| **ESP32** | Legacy Console | 520KB RAM | Dual Xtensa |
-| **ESP32-C3** | Remote Modules | 400KB RAM | Single RISC-V |
-| **native_sim** | Development/Testing | Host memory | Host CPU |
-
-### Recommended: ESP32-S3
-
-- Best performance and memory
-- Full feature support
-- PSRAM for WASM applications
-- Primary development target
+| Topic | Resource |
+|-------|----------|
+| WASM app development | [AkiraSDK/README.md](AkiraSDK/README.md) |
+| Full API reference | [AkiraSDK/docs/API_REFERENCE.md](AkiraSDK/docs/API_REFERENCE.md) |
+| Architecture | [docs/architecture/system-overview.md](docs/architecture/system-overview.md) |
+| Contributing | [CONTRIBUTING.md](CONTRIBUTING.md) |
 
 ---
 
-## 📚 Next Steps
+<div align="center">
 
-After setup, check out:
+**You're ready to develop with AkiraOS!**
 
-- **[README.md](README.md)** - Project overview
-- **[docs/api-reference.md](docs/api-reference.md)** - System APIs
-- **[docs/AkiraOS.md](docs/AkiraOS.md)** - Architecture details
-- **[src/services/ocre_runtime.c](src/services/ocre_runtime.c)** - OCRE integration example
+Questions? Open an issue on [GitHub](https://github.com/ArturR0k3r/AkiraOS/issues)
 
----
+[Back to Top](#akiraos-quick-start-guide)
 
-## 💡 Pro Tips
-
-1. **Use native_sim for fast development** - No hardware needed, instant feedback
-2. **Use `--app-only` for faster flashing** - Skip bootloader when testing app changes
-3. **Monitor serial output** - Use `west espmonitor` for better output formatting
-4. **Clean builds when switching platforms** - Run `./build_both.sh <platform> clean`
-
----
-
-**Need help?** Open an issue on [GitHub](https://github.com/ArturR0k3r/AkiraOS/issues)
+</div>

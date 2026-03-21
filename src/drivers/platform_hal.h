@@ -62,13 +62,20 @@
 #warning "Unknown platform - assuming generic"
 #endif
 
-/* Hardware capability flags */
-#define AKIRA_HAS_DISPLAY (AKIRA_PLATFORM_ESP32 || AKIRA_PLATFORM_ESP32S3 || AKIRA_PLATFORM_NATIVE_SIM)
-#define AKIRA_HAS_WIFI (AKIRA_PLATFORM_ESP32 || AKIRA_PLATFORM_ESP32S3)
-#define AKIRA_HAS_SPI (AKIRA_PLATFORM_ESP32 || AKIRA_PLATFORM_ESP32S3 || AKIRA_PLATFORM_STM32 || AKIRA_PLATFORM_NORDIC)
-#define AKIRA_HAS_REAL_GPIO (AKIRA_PLATFORM_ESP32 || AKIRA_PLATFORM_ESP32S3 || AKIRA_PLATFORM_STM32 || AKIRA_PLATFORM_NORDIC)
-#define AKIRA_HAS_SIMULATED_DISPLAY AKIRA_PLATFORM_NATIVE_SIM
-#define AKIRA_HAS_SIMULATED_BUTTONS AKIRA_PLATFORM_NATIVE_SIM
+/* Use Kconfig symbols for feature detection, not compile-time SOC macros.
+ * Boards enable features in their .conf file:
+ *   CONFIG_AKIRA_DISPLAY=y  — display HAL + WASM exports active
+ *   CONFIG_AKIRA_WIFI=y     — WiFi connectivity APIs active
+ * Code should guard on CONFIG_DISPLAY / CONFIG_AKIRA_DISPLAY, etc.
+ * The AKIRA_PLATFORM_* macros below remain available for the few places
+ * that genuinely need platform-specific code paths (e.g. sim vs HW flush).
+ *
+ * Runtime feature queries (used where compile-time guards are inconvenient):
+ */
+bool akira_has_display(void);
+bool akira_has_wifi(void);
+bool akira_has_spi(void);
+bool akira_has_gpio(void);
 
 /* Platform-specific device names */
 #if AKIRA_PLATFORM_NATIVE_SIM
@@ -84,30 +91,6 @@
  * @return 0 on success, negative errno on error
  */
 int akira_hal_init(void);
-
-/**
- * @brief Check if display hardware/simulation is available
- * @return true if display is available, false otherwise
- */
-bool akira_has_display(void);
-
-/**
- * @brief Check if WiFi hardware is available
- * @return true if WiFi is available, false otherwise
- */
-bool akira_has_wifi(void);
-
-/**
- * @brief Check if SPI hardware is available
- * @return true if SPI is available, false otherwise
- */
-bool akira_has_spi(void);
-
-/**
- * @brief Check if real GPIO hardware is available
- * @return true if real GPIO is available, false otherwise
- */
-bool akira_has_gpio(void);
 
 /**
  * @brief Get the platform name string
@@ -183,5 +166,43 @@ void akira_sim_draw_pixel(int x, int y, uint16_t color);
  * @brief Show simulated display window (native_sim only)
  */
 void akira_sim_show_display(void);
+
+/**
+ * @brief Get pointer to hardware framebuffer (240x320 RGB565)
+ * @return Pointer to framebuffer or NULL if not available
+ */
+uint16_t *akira_framebuffer_get(void);
+
+/**
+ * @brief Initialize hardware display HAL
+ * @return 0 on success, negative errno on error
+ */
+int akira_display_hal_init(void);
+
+/**
+ * @brief Flush framebuffer to physical display hardware
+ */
+void akira_display_hal_flush(void);
+
+/**
+ * @brief Get display capabilities
+ * @param caps Pointer to capabilities structure to fill
+ * @return 0 on success, negative errno on error
+ */
+struct display_capabilities;
+int akira_display_hal_get_capabilities(struct display_capabilities *caps);
+
+/**
+ * @brief Set display backlight brightness
+ * @param brightness Brightness level (0-100)
+ */
+void akira_display_hal_set_brightness(uint8_t brightness);
+
+/**
+ * @brief Set display orientation/rotation
+ * @param rotation Rotation mode (0=0°, 1=90°, 2=180°, 3=270°)
+ * @return 0 on success, negative errno on error
+ */
+int akira_display_hal_set_rotation(uint8_t rotation);
 
 #endif /* PLATFORM_HAL_H */

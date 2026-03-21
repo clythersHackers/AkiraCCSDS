@@ -1,0 +1,18 @@
+identifier: esp32s3_super_mini/esp32s3/procpu
+name: ESP32-S3 Super Mini PROCPU
+type: mcu
+arch: xtensa
+toolchain:
+  - zephyr
+supported:
+  - gpio
+  - uart
+  - i2c
+  - spi
+  - counter
+  - watchdog
+  - entropy
+  - pwm
+  - dma
+  - usb_device
+vendor: generic

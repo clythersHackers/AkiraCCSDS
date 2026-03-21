@@ -33,12 +33,108 @@ config AKIRA_TOUCH_XPT2046
     help
       Enable XPT2046 touch screen controller.
 
+
 config AKIRA_WASM_RUNTIME
-    bool "Enable WebAssembly runtime"
+    bool "Enable WebAssembly runtime (WAMR)"
     default n
-    depends on NEWLIB_LIBC
     help
-      Enable WebAssembly application runtime support.
+      Enable the unified Akira WAMR-based runtime. When enabled, Akira will
+      build and link the wasm-micro-runtime (WAMR) and register native APIs.
+      WAMR can use its builtin libc so this option is not constrained to a
+      particular Zephyr libc choice; ensure sufficient heap is available for
+      WAMRs global heap if using PSRAM or builtin heap.
+
+config WAMR_AOT_SUPPORT
+    bool "Enable WASM Ahead-of-Time (AOT) compilation support"
+    default y if SOC_SERIES_ESP32S3 || BOARD_NATIVE_SIM
+    default n
+    depends on AKIRA_WASM_RUNTIME
+    help
+      Enable support for loading AOT-compiled WASM modules (.aot files).
+      AOT modules provide faster execution but require LLVM-based toolchain
+      for compilation. Adds approximately 40KB to firmware size.
+      
+      Disable this to save memory if you only need interpreter mode (.wasm).
+      
+      Recommended:
+      - Enable for ESP32-S3 (XTENSA) and native_sim (powerful targets)
+      - Disable for ARM Cortex-M targets (limited resources)
+
+config AKIRA_RUNTIME_CUSTOM
+    bool "Enable Akira unified custom runtime (Minimalist)"
+    default y
+    help
+      Enable the unified Akira runtime implementation that is direct-to-WAMR.
+      This is the preferred Minimalist Architecture path and registers a
+      single native bridge for Display, Input, RF and Sensor APIs.
+
+config WAMR_HEAP_SIZE
+    int "WAMR heap warning threshold (bytes)"
+    default 262144
+    help
+      Soft quota warning threshold for WAMR dynamic allocations.
+      The runtime now uses Alloc_With_Allocator (PSRAM-first,
+      SRAM fallback) instead of a static pool, so this value no
+      longer reserves any RAM — it is only used for log warnings
+      when total WAMR-managed memory exceeds this limit.
+
+config AKIRA_WASM_APP_STACK_SIZE
+    # WASM app thread stacks always live in SRAM (never PSRAM) to avoid
+    # SPI0 bus contention on ESP32-S3 where PSRAM and internal flash share
+    # the same bus: a direct flash read (e.g. from LittleFS fs_open) briefly
+    # disables PSRAM cache access, crashing any thread whose stack is in PSRAM.
+    # The WAMR interpreter operand stack lives in the WASM heap (PSRAM); the
+    # Zephyr thread stack only carries the C native call chain (~4-8 KB).
+    # 8 KB is sufficient for WAMR instantiate + fs I/O + native dispatch.
+    # Constrained non-PSRAM boards (nRF54L15, etc.) can reduce to 4096.
+    int "WASM app Zephyr thread stack size (bytes)"
+    default 8192
+    depends on AKIRA_WASM_RUNTIME
+    help
+      Stack size for the Zephyr k_thread that hosts each WASM app.
+      Must reside in internal SRAM — do NOT use PSRAM for thread stacks
+      on boards where PSRAM and flash share the SPI0 bus (ESP32-S3 family).
+      The WASM heap and WASM binary can still use PSRAM.
+      Total SRAM consumed: CONFIG_MAX_CONTAINERS * this value.
+      Override per-board in boards/<board>.conf.
+
+config AKIRA_WASM_APP_PRIORITY
+    int "WASM app thread scheduling priority"
+    # 14 matches Zephyr's default shell thread priority so WASM apps and the
+    # shell share the CPU fairly (same-priority round-robin).  A value < 14
+    # (e.g. the old default of 10) made WASM apps higher priority than the
+    # shell, allowing a tight-looping app (e.g. logic_analyzer at 100 us/sample)
+    # to permanently preempt the shell thread and lock out the console.
+    default 14
+    depends on AKIRA_WASM_RUNTIME
+    help
+      Preemptive thread priority for WASM app threads.
+      Lower value = higher priority in Zephyr scheduling.
+      Default 14 places WASM apps at the same level as the Zephyr shell thread
+      so neither can starve the other.  Increase (lower priority) if system
+      responsiveness under heavy WASM load is more important than app frame
+      rate.  Decrease (higher priority) only if an app needs real-time
+      scheduling and you accept potential shell unresponsiveness.
+
+config MAX_CONTAINERS
+    int "Maximum number of concurrently loaded WASM containers"
+    default 8
+    help
+      Maximum number of WASM instances that can be loaded concurrently.
+      Boards with more PSRAM can increase this value (CONFIG_MAX_CONTAINERS).
+
+config AKIRA_DISPLAY
+    bool "Enable Akira display support"
+    default y if DISPLAY
+    help
+      Enable Akira display primitives and native WASM display exports.
+      When disabled all display_* native calls return -ENOTSUP.
+
+config AKIRA_WIFI
+    bool "Enable Akira WiFi support"
+    default y if WIFI
+    help
+      Enable Akira WiFi connectivity APIs.
 
 config AKIRA_TERMINAL_MODE
     bool "Enable hacker terminal mode"  
@@ -47,6 +143,12 @@ config AKIRA_TERMINAL_MODE
     help
       Enable cyberpunk hacker terminal with network tools.
 
+config AKIRA_SELFTEST
+    bool "Enable Akira self-test (native_sim)"
+    default n
+    depends on NATIVE_BUILD || CONFIG_BOARD_NATIVE_SIM
+    help
+      Enable a small self-test that installs a dummy WASM and verifies install/start on native_sim.
 config AKIRA_CYBERPUNK_THEME
     bool "Enable cyberpunk UI theme"
     default n
@@ -62,14 +164,6 @@ config AKIRA_NRF24L01
     help
       Enable NRF24L01+ 2.4GHz wireless transceiver driver.
       Provides low-power wireless communication with up to 2Mbps data rate.
-
-config AKIRA_LSM6DS3
-    bool "Enable LSM6DS3 6-axis IMU"
-    default n
-    depends on I2C
-    help
-      Enable LSM6DS3 6-axis inertial measurement unit driver.
-      Provides 3-axis accelerometer and 3-axis gyroscope data.
 
 config AKIRA_INA219
     bool "Enable INA219 current/power monitor"
@@ -122,11 +216,27 @@ config AKIRA_FRAMEBUFFER_IN_PSRAM
 
 endmenu
 
+config AKIRA_PSRAM
+    bool "Enable Akira PSRAM helper APIs"
+    default n
+    depends on MEMC
+    help
+      Enable Akira PSRAM helper APIs which provide a thin wrapper for allocating
+      large buffers in external PSRAM. This is used to place the WAMR heap and
+      other large runtime buffers in external memory when available.
+
 menu "RF Drivers"
+
+config AKIRA_MODULE_RF
+    bool "Enable Akira RF module"
+    default n
+    help
+      Enable RF module (compile RF framework and drivers). Useful to disable on constrained boards.
 
 config AKIRA_RF_FRAMEWORK
     bool "Enable unified RF framework"
     default n
+    depends on AKIRA_MODULE_RF
     help
       Enable the unified RF driver framework that provides
       a common API for multiple RF chips.
@@ -149,43 +259,73 @@ config AKIRA_CC1101
 
 endmenu
 
-menu "Sensor Drivers"
-
-config AKIRA_BME280
-    bool "Enable BME280 environmental sensor"
-    default n
-    depends on I2C
-    help
-      Enable Bosch BME280 temperature, humidity, and pressure sensor.
-
-endmenu
-
 menu "Connectivity"
+
+config AKIRA_USB
+    bool "Enable Akira USB Manager"
+    default n
+    select USB_DEVICE_STACK_NEXT
+    select UDC_DRIVER
+    help
+      Enable Akira USB Manager for MASS and USB HID
+
+config AKIRA_MODULE_WIFI
+    bool "Enable Akira Connectivity module (WiFi/BLE/Cloud)"
+    default n
+    help
+      Enable higher-level connectivity providers (WiFi, BLE, Cloud).
 
 config AKIRA_HID
     bool "Enable HID subsystem"
-    default y
+    default n
     help
       Enable unified HID (Human Interface Device) subsystem.
       Allows AkiraOS to act as a keyboard, gamepad, or other HID device.
 
-config AKIRA_HID_KEYBOARD
-    bool "Enable keyboard HID profile"
-    default y
-    depends on AKIRA_HID
+if AKIRA_HID
+
+choice AKIRA_HID_MODE
+    prompt "HID device mode"
+    default AKIRA_HID_MODE_KB_MOUSE
     help
-      Enable USB/BLE keyboard HID profile.
+      Select what HID device type to expose over BLE and USB.
+
+config AKIRA_HID_MODE_KB_MOUSE
+    bool "Keyboard + Mouse + Consumer"
+    help
+      Expose keyboard, mouse, and consumer (media keys) reports.
+      Compatible with iOS, macOS, Windows, Android.
+
+config AKIRA_HID_MODE_GAMEPAD
+    bool "Gamepad"
+    help
+      Expose a gamepad with axes, buttons, and hat switch.
+      Not compatible with iOS HOGP — use USB or dedicated gamepad profile.
+
+endchoice
+
+# Derived symbols
+config AKIRA_HID_KEYBOARD
+    bool
+    default y if AKIRA_HID_MODE_KB_MOUSE
+
+config AKIRA_HID_MOUSE
+    bool
+    default y if AKIRA_HID_MODE_KB_MOUSE
 
 config AKIRA_HID_GAMEPAD
-    bool "Enable gamepad HID profile"
-    default y
-    depends on AKIRA_HID
-    help
-      Enable USB/BLE gamepad HID profile.
+    bool
+    default y if AKIRA_HID_MODE_GAMEPAD
+
+config AKIRA_HID_CONSUMER
+    bool
+    default y if AKIRA_HID_MODE_KB_MOUSE
+
+endif # AKIRA_HID
 
 config AKIRA_BT_HID
     bool "Enable Bluetooth HID"
-    default y
+    default n
     depends on AKIRA_HID && BT
     help
       Enable HID over Bluetooth Low Energy (BLE).
@@ -200,13 +340,140 @@ config AKIRA_BT_ECHO
       and echoes the payload back via notifications. Useful for testing and
       debugging BT connectivity. Can also be toggled at runtime via shell.
 
+menu "Advanced Connectivity"
+
+config AKIRA_RADIO_MANAGER
+    bool "Enable Radio Abstraction Layer"
+    default y
+    help
+      Enable hardware-agnostic Radio Abstraction Layer (RAL).
+      Provides unified interface for WiFi, BLE, and 802.15.4 radios,
+      enabling protocol stacks to work across all hardware platforms.
+
+config AKIRA_MATTER
+    bool "Enable Matter protocol support"
+    default n
+    depends on AKIRA_RADIO_MANAGER
+    help
+      Enable Matter (Connected Home over IP) protocol stack.
+      Requires ConnectedHomeOverIP module in west.yml.
+      Supports Matter-over-WiFi, Matter-over-Thread, and BLE commissioning.
+
+if AKIRA_MATTER
+
+config AKIRA_MATTER_VENDOR_ID
+    hex "Matter Vendor ID"
+    default 0xFFF1
+    help
+      CSA-assigned vendor ID (use test ID 0xFFF1 for development)
+
+config AKIRA_MATTER_PRODUCT_ID
+    hex "Matter Product ID"
+    default 0x8000
+    help
+      Product ID for this device
+
+config AKIRA_MATTER_DEVICE_TYPE
+    hex "Matter Device Type"
+    default 0x0100
+    help
+      Primary device type (0x0100 = On/Off Light)
+
+endif # AKIRA_MATTER
+
+config AKIRA_THREAD
+    bool "Enable Thread protocol support"
+    default n
+    depends on AKIRA_RADIO_MANAGER && NET_L2_IEEE802154
+    help
+      Enable OpenThread mesh networking stack.
+      Requires OpenThread module in west.yml and 802.15.4 radio hardware.
+      Supports Thread router, end device, and border router roles.
+
+if AKIRA_THREAD
+
+config AKIRA_THREAD_FTD
+    bool "Full Thread Device (FTD)"
+    default y
+    help
+      Enable Full Thread Device (router/leader capable).
+      Disable for Minimal Thread Device (MTD) - end device only.
+
+config AKIRA_THREAD_BORDER_ROUTER
+    bool "Enable Thread Border Router"
+    default n
+    depends on AKIRA_THREAD_FTD
+    help
+      Enable Thread Border Router functionality.
+      Provides gateway between Thread mesh and WiFi/Ethernet.
+
+endif # AKIRA_THREAD
+
+config AKIRA_MESH
+    bool "Enable AkiraMesh protocol"
+    default n
+    depends on AKIRA_RADIO_MANAGER
+    help
+      Enable AkiraMesh - custom lightweight mesh networking protocol.
+      Supports multi-transport (BLE Mesh, 802.15.4, ESP-NOW),
+      multi-hop routing, WASM app distribution, and state synchronization.
+
+if AKIRA_MESH
+
+config AKIRA_MESH_MAX_NODES
+    int "Maximum mesh nodes"
+    default 32
+    range 4 128
+    help
+      Maximum number of nodes in the mesh network
+
+config AKIRA_MESH_MAX_HOPS
+    int "Maximum hop count"
+    default 5
+    range 1 15
+    help
+      Maximum number of hops for mesh routing
+
+config AKIRA_MESH_TRANSPORT_BLE
+    bool "Enable BLE Mesh transport"
+    default y if BT
+    depends on BT
+    help
+      Enable BLE Mesh transport (standards-based, works on all platforms)
+
+config AKIRA_MESH_TRANSPORT_802154
+    bool "Enable 802.15.4 transport"
+    default y if NET_L2_IEEE802154
+    depends on NET_L2_IEEE802154
+    help
+      Enable custom protocol over 802.15.4 (higher throughput)
+
+config AKIRA_MESH_TRANSPORT_ESPNOW
+    bool "Enable ESP-NOW transport"
+    default n
+    depends on WIFI_ESP32
+    help
+      Enable ESP-NOW transport (ESP32 optimization)
+
+endif # AKIRA_MESH
+
+config BT_RECONNECT_DELAY_MS
+    int "Bluetooth reconnect delay (ms)"
+    default 500
+    range 0 5000
+    depends on BT
+    help
+      Delay before restarting advertising after disconnection.
+      This gives the phone time to clean up the previous connection
+      before attempting to reconnect. Set to 0 to disable delay.
+      Recommended: 500ms for iOS/Android compatibility.
+
 config AKIRA_USB_HID
     bool "Enable USB HID"
     default y
-    depends on AKIRA_HID && USB_DEVICE
+    depends on AKIRA_HID && AKIRA_USB && AKIRA_HID_MODE_KB_MOUSE
     help
       Enable HID over USB.
-      Requires USB device stack to be enabled.
 
 config AKIRA_HID_SIM
     bool "Enable HID simulation (for testing)"
@@ -252,7 +519,7 @@ config AKIRA_EMBEDDED_WEB
     help
       Enable the embedded HTML web UI server hosted directly on the device.
       Disabling this saves memory when the device connects to a centrally
-      hosted web server and doesn't need to serve pages locally.
+      hosted web server and doesnt need to serve pages locally.
 
 endmenu
 
@@ -385,6 +652,42 @@ config AKIRA_CLOUD_AUTO_START_APPS
 
 endmenu
 
+endmenu # Connectivity
+
+# ---------------------------------------------------------------------------
+# SD Card Hardware
+# ---------------------------------------------------------------------------
+menu "SD Card"
+
+config AKIRA_SD_CARD
+    bool "Enable SD card hardware support"
+    default n
+    select DISK_ACCESS
+    select FAT_FILESYSTEM_ELM
+    help
+      Enables the SD card hardware driver (sd_card.c) which probes the disk
+      and mounts FATFS at /SD: via SYS_INIT at CONFIG_AKIRA_SD_INIT_PRIORITY.
+
+      The actual hardware interface (SPI-SDHC or native SDMMC) is selected
+      by each board's .conf and .overlay files independently of this option.
+
+      Enable per-board:
+        CONFIG_SDHC=y
+        CONFIG_DISK_DRIVER_SDHC=y     # SPI-based, most boards
+        # or
+        CONFIG_DISK_DRIVER_SDMMC=y    # native SDMMC peripheral
+
+config AKIRA_SD_INIT_PRIORITY
+    int "SD card SYS_INIT priority"
+    default 38
+    depends on AKIRA_SD_CARD
+    help
+      Automatic init priority for the SD card driver.  Must be lower than
+      AKIRA_FS_INIT_PRIORITY (default 40) so the SD mount is complete before
+      fs_manager queries disk availability.
+
+endmenu # SD Card
+
 menu "App Manager"
 
 config AKIRA_APP_MANAGER
@@ -414,11 +717,12 @@ config AKIRA_APP_MAX_RUNNING
 
 config AKIRA_APP_MAX_SIZE_KB
     int "Maximum app size (KB)"
-    default 64
-    range 16 256
+    default 1024
+    range 16 2048
     depends on AKIRA_APP_MANAGER
     help
       Maximum size of a single WASM app binary in kilobytes.
+      Retro emulator apps bundle a full ROM and need at least 512 KB.
 
 config AKIRA_APP_DEFAULT_HEAP_KB
     int "Default app heap size (KB)"
@@ -455,16 +759,18 @@ config AKIRA_APP_SOURCE_BLE
 config AKIRA_APP_SOURCE_USB
     bool "Enable USB storage app install"
     default y
-    depends on AKIRA_APP_MANAGER && USB_DEVICE
+    depends on AKIRA_APP_MANAGER && AKIRA_USB
     help
       Allow app installation from USB mass storage.
 
 config AKIRA_APP_SOURCE_SD
     bool "Enable SD card app install"
     default y
-    depends on AKIRA_APP_MANAGER && DISK_ACCESS
+    depends on AKIRA_APP_MANAGER && AKIRA_SD_CARD
     help
       Allow app installation from SD card.
+      Scans /SD:/apps/*.wasm and installs any unregistered apps.
+      Requires CONFIG_AKIRA_SD_CARD=y in the board .conf file.
 
 config AKIRA_APP_SOURCE_FIRMWARE
     bool "Enable firmware-embedded apps"
@@ -530,7 +836,7 @@ config AKIRA_OTA_BLE
 config AKIRA_OTA_USB
     bool "Enable USB OTA transport"
     default y
-    depends on AKIRA_OTA && USB_DEVICE
+    depends on AKIRA_OTA && AKIRA_USB
     help
       Enable OTA updates via USB connection.
 
@@ -568,6 +874,70 @@ config AKIRA_POWER_DEEP_SLEEP
     help
       Enable deep sleep mode for maximum power savings.
 
+config AKIRA_BATTERY_LOW_THRESHOLD
+    int "Low battery threshold (%)"
+    default 15
+    range 1 50
+    depends on AKIRA_POWER_MANAGER
+    help
+      State-of-charge percentage below which low_battery is flagged.
+
+config AKIRA_BATTERY_ADC
+    bool "Enable ADC battery voltage measurement"
+    default n
+    depends on AKIRA_POWER_MANAGER && ADC
+    help
+      Read battery voltage via an ADC channel wired through a resistor
+      divider.  Define a DTS alias 'battery-voltage' pointing to the ADC
+      device, then set the channel, reference voltage, and divider below.
+      Use this when no fuel-gauge IC (CONFIG_FUEL_GAUGE) or INA219
+      (CONFIG_INA219) is available.
+
+config AKIRA_BATTERY_ADC_CHANNEL
+    int "ADC channel for battery voltage"
+    default 0
+    range 0 31
+    depends on AKIRA_BATTERY_ADC
+    help
+      ADC channel number connected to the battery voltage divider output.
+
+config AKIRA_BATTERY_ADC_VREF_MV
+    int "ADC internal reference voltage (mV)"
+    default 3300
+    depends on AKIRA_BATTERY_ADC
+    help
+      Internal ADC reference in millivolts (3300 for 3.3 V VDD reference,
+      1100 for ESP32 internal 1.1 V reference, etc.).
+
+config AKIRA_BATTERY_ADC_VDIV_MUL
+    int "Voltage divider multiplier (*1000)"
+    default 2000
+    depends on AKIRA_BATTERY_ADC
+    help
+      Integer scaling factor to convert the ADC pin voltage to the true
+      battery voltage.  Expressed as (actual_factor * 1000).  For equal
+      R1=R2 the battery is 2x the pin voltage, so set this to 2000.
+      For R1=1M, R2=470k: factor = (1000+470)/470 ≈ 3128, so set 3128.
+
+config AKIRA_WASM_POWER
+    bool "Enable WASM power/battery read API"
+    default y
+    depends on AKIRA_POWER_MANAGER && AKIRA_WASM_RUNTIME
+    help
+      Expose power_get_mode, power_get_battery_level and
+      power_get_battery_status to WASM apps (requires power.read cap).
+      Battery data is pulled from whatever hardware tier is enabled:
+      CONFIG_FUEL_GAUGE > CONFIG_INA219 > CONFIG_AKIRA_BATTERY_ADC.
+
+config AKIRA_WASM_POWER_CONTROL
+    bool "Enable WASM power control API (elevated)"
+    default n
+    depends on AKIRA_WASM_POWER
+    help
+      Also expose power_set_mode, power_wake_on_gpio, power_wake_on_timer
+      and power_set_low_power to WASM apps. Requires power.control cap.
+      Do NOT enable for untrusted app stores.
+
 endmenu
 
 menu "Security"
@@ -581,9 +951,104 @@ config AKIRA_CAPABILITY_SYSTEM
 config AKIRA_APP_SIGNING
     bool "Enable app signature verification"
     default n
-    depends on AKIRA_CAPABILITY_SYSTEM
+    depends on AKIRA_CAPABILITY_SYSTEM && MBEDTLS
     help
       Require cryptographic signature verification for apps.
+      Uses mbedTLS SHA-256 + RSA-2048 or Ed25519.
+
+config AKIRA_SANDBOX
+    bool "Enable runtime sandbox"
+    default y
+    depends on AKIRA_CAPABILITY_SYSTEM
+    help
+      Enable runtime sandboxing with syscall filtering, rate limiting,
+      and execution watchdog for WASM applications.
+
+config AKIRA_SANDBOX_EXEC_TIMEOUT_MS
+    int "WASM execution timeout (ms)"
+    default 5000
+    range 1000 30000
+    depends on AKIRA_SANDBOX
+    help
+      Maximum execution time for a single WASM function call before
+      the watchdog kills the app. Set higher for compute-heavy apps.
+
+config AKIRA_WASM_START_TIMEOUT_MS
+    int "WASM instantiation timeout (ms)"
+    default 15000
+    range 2000 60000
+    depends on AKIRA_WASM_RUNTIME
+    help
+      Maximum time to wait for a WASM module to complete instantiation
+      and signal readiness. Increase if modules perform heavy init work.
+
+config AKIRA_WASM_STOP_TIMEOUT_MS
+    int "WASM stop/join timeout (ms)"
+    default 5000
+    range 1000 30000
+    depends on AKIRA_WASM_RUNTIME
+    help
+      Maximum time to wait for a WASM app thread to exit cleanly after
+      wasm_runtime_terminate() is called. Thread is aborted on timeout.
+
+config AKIRA_BOOT_DELAY_MS
+    int "Boot splash delay (ms)"
+    default 3000
+    range 0 10000
+    depends on AKIRA_DISPLAY
+    help
+      How long to show the boot splash screen before continuing
+      with system initialisation. Set to 0 to disable the delay.
+
+config AKIRA_SANDBOX_RATE_LIMITING
+    bool "Enable syscall rate limiting"
+    default y
+    depends on AKIRA_SANDBOX
+    help
+      Enable per-category rate limiting for syscalls.
+      Prevents apps from hogging hardware resources.
+
+config AKIRA_SECURITY_AUDIT
+    bool "Enable security audit logging"
+    default y
+    depends on AKIRA_CAPABILITY_SYSTEM
+    help
+      Enable ring buffer security audit log that records
+      denied capabilities, rate limits, and watchdog kills.
+
+config AKIRA_AUDIT_LOG_SIZE
+    int "Audit log entries"
+    default 32
+    range 16 128
+    depends on AKIRA_SECURITY_AUDIT
+    help
+      Number of audit log entries in the ring buffer.
+      Each entry uses ~68 bytes of RAM.
+
+config AKIRA_WASM_INTEGRITY_CHECK
+    bool "Enable WASM binary integrity verification"
+    default y
+    depends on AKIRA_CAPABILITY_SYSTEM
+    help
+      Verify WASM binary structural integrity (magic, version,
+      section layout) before loading. Catches corrupted binaries.
+
+config AKIRA_MODULE_CACHE
+    bool "Enable WASM module cache"
+    default y
+    depends on AKIRA_WASM_RUNTIME
+    help
+      Cache loaded WASM modules by SHA-256 hash to avoid
+      reloading identical binaries. Trades RAM for performance.
+
+config AKIRA_MODULE_CACHE_SIZE
+    int "Module cache entries"
+    default 4
+    range 2 8
+    depends on AKIRA_MODULE_CACHE
+    help
+      Maximum number of cached WASM modules.
+      Each cached module retains the parsed WAMR module in memory.
 
 endmenu
 
@@ -649,74 +1114,441 @@ config FS_FATFS_VOLUME_COUNT
     help
       Maximum number of FAT volumes supported.
 
-config MAX_CONTAINERS
-    int "Maximum number of OCRE containers"
+
+menu "WASM API Exports"
+    depends on AKIRA_WASM_RUNTIME
+
+config AKIRA_WASM_API
+    bool "Enable WASM native API exports"
+    default y
+    depends on AKIRA_WASM_RUNTIME
+    help
+      Enable registration of native APIs for WASM applications.
+      This allows WASM apps to call native platform functions.
+
+config AKIRA_LSM6DS3_DRIVER
+    bool "AkiraOS out-of-tree LSM6DS3 IMU driver"
+    depends on I2C && SENSOR
+    help
+      Enable the AkiraOS driver for the ST LSM6DS3 6-axis IMU
+      (accelerometer + gyroscope). Accepts WHO_AM_I = 0x69 — the
+      value reported by the original LSM6DS3, which is rejected by
+      Zephyr's upstream lsm6dsl driver (expects 0x6A).
+      Use compatible "akira,lsm6ds3" in your board DTS overlay.
+
+config AKIRA_ILI9341_DRIVER
+    bool "AkiraOS out-of-tree ILI9341 display driver"
+    depends on DISPLAY && SPI
+    help
+      Enable the AkiraOS direct-SPI driver for the Ilitek ILI9341 display.
+      Uses the proven AkiraOS init sequence — use this instead of the
+      upstream CONFIG_ILI9341 (MIPI DBI) driver when that produces a
+      blank/white display.
+      Use compatible "akira,ili9341" in your board DTS overlay.
+
+config AKIRA_WASM_MEMORY
+    bool "Export Memory API to WASM"
+    default y
+    depends on AKIRA_WASM_API
+    help
+      Export memory allocation functions to WASM applications.
+      Provides quota-enforced malloc/free operations.
+      Memory usage is tracked per-app with configurable quotas.
+
+menu "BLE App API"
+    depends on BT
+
+config AKIRA_WASM_BLE
+    bool "Export BLE App API to WASM"
+    default n
+    depends on AKIRA_WASM_API && BT
+    select BT_GATT_DYNAMIC_DB
+    help
+      Export a clean Arduino-style BLE API to WASM applications.
+      Allows apps to create custom GATT services, characteristics,
+      advertise, and exchange data with BLE peers.
+      Mutually exclusive with BLE HID mode at runtime.
+      Requires 'ble' capability in the app manifest.
+
+config AKIRA_BLE_MAX_SERVICES
+    int "Maximum BLE app service slots"
+    default 4
+    range 1 8
+    depends on AKIRA_WASM_BLE
+    help
+      Number of GATT service slots available to a WASM app.
+      Each slot consumes static RAM.
+
+config AKIRA_BLE_MAX_CHARS
+    int "Maximum BLE app characteristic slots"
+    default 8
+    range 1 16
+    depends on AKIRA_WASM_BLE
+    help
+      Total number of GATT characteristic slots across all services.
+
+config AKIRA_BLE_EVENT_QUEUE_DEPTH
+    int "BLE app event queue depth (messages)"
+    default 16
+    range 4 64
+    depends on AKIRA_WASM_BLE
+    help
+      Number of BLE events (connect, disconnect, char written) that can
+      be buffered before the WASM app drains them with ble_event_pop().
+
+config AKIRA_BLE_CHAR_MAX_LEN
+    int "Maximum BLE characteristic value length (bytes)"
+    default 64
+    range 1 512
+    depends on AKIRA_WASM_BLE
+    help
+      Maximum number of bytes that can be stored per characteristic.
+      Also caps the data payload in BLE events.
+
+endmenu
+
+config AKIRA_WASM_NET
+    bool "Export Network API to WASM (TCP/UDP sockets)"
+    default n
+    depends on AKIRA_WASM_API && (NET_TCP || NET_UDP)
+    help
+      Export a stream-based TCP/UDP socket API to WASM applications.
+      Data flows through shared-memory ring buffers in WASM linear memory,
+      minimising WASM/host context switches.
+      Requires 'network' capability in the app manifest.
+
+config AKIRA_NET_MAX_STREAMS
+    int "Maximum concurrent network streams"
     default 4
     range 1 16
+    depends on AKIRA_WASM_NET
     help
-      Maximum number of containers that can be managed by OCRE.
+      Number of simultaneous TCP/UDP socket slots available.
+      Each slot uses a small amount of SRAM for metadata.
+      Actual data buffers live in WASM linear memory (PSRAM).
 
-config OCRE_WAMR_HEAP_BUFFER_SIZE
-    int "WAMR heap buffer size"
-    default 262144
+config AKIRA_NET_POLL_STACK_SIZE
+    int "Network poll thread stack size (bytes)"
+    default 2048
+    range 1024 8192
+    depends on AKIRA_WASM_NET
     help
-      Size of the heap buffer for WAMR runtime.
-      Must be large enough to hold WASM linear memory.
-      Default 256KB, OCRE recommends 512KB for production.
+      Stack size of the internal poll thread that drives all sockets.
+      The stack must accommodate a per-call RX buffer of
+      CONFIG_AKIRA_NET_MAX_MSG_SIZE bytes.
 
-config OCRE_WAMR_HEAP_BUFFER_IN_PSRAM
-    bool "Place WAMR heap buffer in PSRAM when available"
-    depends on MEMC
+config AKIRA_NET_EVENT_QUEUE_DEPTH
+    int "Network event queue depth (messages)"
+    default 8
+    range 4 32
+    depends on AKIRA_WASM_NET
+    help
+      Number of network events (CONNECTED, DATA_READY, ACCEPT, etc.)
+      that can be buffered before the WASM app drains them with
+      net_event_pop().
+
+config AKIRA_NET_MAX_MSG_SIZE
+    int "Maximum single network message size (bytes)"
+    default 1500
+    range 64 4096
+    depends on AKIRA_WASM_NET
+    help
+      Maximum payload size for a single framed message in the TX/RX ring.
+      Should match or exceed the network MTU (1500 for Ethernet/WiFi).
+      Used to size the temporary receive buffer on the poll thread stack.
+
+config AKIRA_WASM_HID
+    bool "Export HID API to WASM"
     default n
+    depends on AKIRA_WASM_API && AKIRA_HID
     help
-      When set, the global WAMR heap buffer (configured via
-      CONFIG_OCRE_WAMR_HEAP_BUFFER_SIZE) will be placed into the
-      external PSRAM section (if supported by the board and MEMC
-      driver). This frees internal DRAM for other runtime usage.
+      Export HID keyboard, gamepad, mouse, consumer media key, raw report,
+      and named action hotkey functions to WASM applications.
+      Requires AKIRA_CAP_HID capability in the app manifest.
+      Do NOT enable on native_sim (no BT/USB HID transport).
 
-
-config OCRE_CONTAINER_DEFAULT_STACK_SIZE
-    int "Default container stack size"
-    default 8192
+config AKIRA_HID_MAX_ACTIONS
+    int "Maximum named HID action bindings"
+    default 8
+    range 1 64
+    depends on AKIRA_WASM_HID
     help
-      Default stack size for OCRE containers.
+      Size of the static named-action registry used by
+      hid_action_register() / hid_action_trigger().
+      Each entry uses ~34 bytes of SRAM.
 
-config OCRE_CONTAINER_DEFAULT_HEAP_SIZE
-    int "Default container heap size"
-    default 65536
-    help
-      Default heap size for OCRE containers.
-      This is the WASM linear memory size.
-
-config AKIRA_WAMR_MINI_LOADER
-    bool "Use WAMR mini loader"
+config AKIRA_WASM_LIFECYCLE
+    bool "Export App Lifecycle API to WASM"
     default n
-    depends on AKIRA_APP_MANAGER
+    depends on AKIRA_WASM_API && AKIRA_APP_MANAGER
     help
-      Use the WAMR mini loader to reduce code size.
-      This reduces flash usage but may limit some WASM features.
+      Export app_start / app_stop / app_restart / app_get_status /
+      app_list / app_get_self_name to WASM applications.
+      Requires AKIRA_CAP_APP_CONTROL — elevated privilege; must NOT be
+      granted to untrusted apps by default.
 
-config AKIRA_WAMR_MINIMAL
-    bool "Minimal WAMR build"
+config AKIRA_WASM_IPC
+    bool "Export Inter-App Messaging API to WASM"
     default n
-    depends on AKIRA_APP_MANAGER
+    depends on AKIRA_WASM_API
     help
-      Build WAMR with minimal features to save memory.
-      Disables: bulk_memory, ref_types, multi_module, tail_call, simd, logging.
-      Use this for memory-constrained devices like nRF54L15 or STM32.
+      Export named-topic pub/sub IPC to WASM applications.
+      Apps subscribe to topics, publish messages, and receive messages
+      from other apps.  Requires AKIRA_CAP_IPC capability.
+      msgq backing buffers are allocated from PSRAM when available.
 
-config AKIRA_OCRE_CS_THREAD_STACK_SIZE
-    int "OCRE Container Supervisor thread stack size"
-    default 16384 if SOC_SERIES_ESP32S3 || SOC_SERIES_ESP32
-    default 4096
-    depends on AKIRA_APP_MANAGER
+config AKIRA_IPC_MAX_TOPICS
+    int "Maximum number of IPC topics"
+    default 8
+    range 1 32
+    depends on AKIRA_WASM_IPC
     help
-      Stack size for the OCRE Container Supervisor thread.
-      ESP32-S3 and ESP32 require larger stacks (16384) due to their architecture
-      and WAMR initialization overhead.
-      Other platforms can use the default (4096).
+      Maximum number of simultaneously active named IPC topics.
+      Default raised to 8 to accommodate the built-in akira.lifecycle topic
+      plus additional user topics.
 
-# Akira Module System (Core AkiraOS functionality)
-rsource "src/akira_modules/Kconfig"
+config AKIRA_IPC_MAX_SUBS_PER_TOPIC
+    int "Maximum subscribers per IPC topic"
+    default 4
+    range 1 16
+    depends on AKIRA_WASM_IPC
+    help
+      Maximum number of apps that can subscribe to one topic.
+      Default raised to 4 so supervisor plus multiple concurrent apps can
+      all subscribe to akira.lifecycle simultaneously.
 
+config AKIRA_IPC_MSG_MAX_SIZE
+    int "Maximum IPC message payload size (bytes)"
+    default 64
+    range 16 1024
+    depends on AKIRA_WASM_IPC
+    help
+      Maximum size of a single IPC message payload in bytes.
+      Each subscriber queue slot uses this much PSRAM/SRAM.
+
+config AKIRA_IPC_QUEUE_DEPTH
+    int "IPC subscriber queue depth (messages)"
+    default 2
+    range 1 16
+    depends on AKIRA_WASM_IPC
+    help
+      Number of messages each subscriber queue can hold before
+      dropping new messages from publishers.
+
+config AKIRA_WASM_TIMER
+    bool "Export Timer API to WASM"
+    default y
+    depends on AKIRA_WASM_API
+    help
+      Export polling timer functions to WASM applications.
+      Provides timer_create/start/stop/elapsed/free backed by k_uptime_get().
+      Requires AKIRA_CAP_TIMER capability in the app manifest.
+
+config AKIRA_WASM_TIMER_MAX_HANDLES
+    int "Maximum number of concurrent WASM timer handles"
+    default 8
+    range 1 32
+    depends on AKIRA_WASM_TIMER
+    help
+      Maximum number of simultaneously active timer handles across all WASM apps.
+      Each handle uses ~20 bytes of static RAM.
+
+config AKIRA_WASM_UART
+    bool "Export UART API to WASM"
+    default n
+    depends on AKIRA_WASM_API && SERIAL
+    help
+      Export UART read/write functions to WASM applications.
+      UART0 (shell/log) is reserved; WASM apps access UART1+.
+      Requires AKIRA_CAP_UART capability in the app manifest.
+
+config AKIRA_WASM_UART_RX_BUF_SIZE
+    int "WASM UART RX ring buffer size (bytes)"
+    default 256
+    range 64 4096
+    depends on AKIRA_WASM_UART
+    help
+      Size of the per-handle IRQ-driven RX ring buffer.
+      Bytes received via UART interrupt are stored here until
+      the WASM app calls uart_read().
+
+config AKIRA_WASM_I2C
+    bool "Export I2C API to WASM"
+    default n
+    depends on AKIRA_WASM_API && I2C
+    help
+      Export raw I2C register read/write functions to WASM applications.
+      Stateless API: WASM passes bus_id + device address + register per call.
+      Requires AKIRA_CAP_I2C capability in the app manifest.
+
+config AKIRA_WASM_PWM
+    bool "Export PWM API to WASM"
+    default n
+    depends on AKIRA_WASM_API && PWM
+    help
+      Export PWM channel control to WASM applications.
+      Provides pwm_set(channel, freq_hz, duty_pct) and pwm_disable(channel).
+      Requires AKIRA_CAP_PWM capability in the app manifest.
+
+config AKIRA_WASM_STORAGE
+    bool "Export Storage (filesystem) API to WASM"
+    default y
+    depends on AKIRA_WASM_API && FILE_SYSTEM
+    help
+      Export sandboxed file I/O to WASM applications.
+
+      Each app is confined to <best_mount>/apps/<app_name>/ where best_mount
+      is SD card if present, then LittleFS, then RAM.  Path traversal (..) is
+      rejected with -EACCES.
+
+      Required capabilities in the app manifest:
+        "storage.read"  — read / list
+        "storage.write" — write / delete
+
+config AKIRA_WASM_STORAGE_MAX_FDS
+    int "Maximum simultaneous open storage files per-system"
+    default 8
+    range 2 32
+    depends on AKIRA_WASM_STORAGE
+    help
+      Global limit on open storage file descriptors across all running WASM
+      apps.  Each descriptor holds a Zephyr struct fs_file_t (~48 bytes).
+
+endmenu
+
+menu "Akira Settings"
+
+config AKIRA_SETTINGS
+    bool "Enable Akira Settings Manager"
+    default y
+
+config AKIRA_SETTINGS_MAX_KEYS
+    int "Maximum number of keys"
+    default 100
+    range 1 500
+    help
+      Maximum number of key-value pairs that can be stored.
+      Each key entry uses approximately 256 bytes in registry.
+
+config AKIRA_SETTINGS_MAX_VALUE_LEN
+    int "Maximum value length (bytes)"
+    default 64
+    range 32 256
+    help
+      Maximum length of a single value in bytes.
+      This affects memory allocation for temporary buffers.
+
+config AKIRA_SETTINGS_MAX_KEY_LEN
+    int "Maximum key length (bytes)"
+    default 32
+    range 8 256
+    help
+      Maximum length of a single value in bytes.
+      This affects memory allocation for temporary buffers.
+
+choice AKIRA_SETTINGS_STORAGE_TYPE
+    prompt "Default storage type"
+    default AKIRA_SETTINGS_STORAGE_TYPE_FLASH
+    help
+      Select the default storage backend.
+
+config AKIRA_SETTINGS_STORAGE_TYPE_FLASH
+    bool "Flash (NVS)"
+    help
+      Store settings in internal flash memory using NVS.
+
+config AKIRA_SETTINGS_STORAGE_TYPE_SD
+    bool "SD Card"
+    help
+      Store settings on SD card (if available).
+
+config AKIRA_SETTINGS_STORAGE_TYPE_AUTO
+    bool "Auto (Flash)"
+    help
+      Automatically select storage: prefer Flash, fallback to SD.
+
+endchoice
+
+config AKIRA_SETTINGS_ENCRYPTION
+    bool "Enable transparent encryption"
+    default n
+    depends on MBEDTLS_BUILTIN 
+    select ENTROPY_GENERATOR
+    select BASE64
+    help
+      Transparently encrypt all settings data using AES-256-GCM.
+      Provides confidentiality and integrity protection.
+      Uses ESP32 hardware AES acceleration for fast encryption.
+      
+      All devices must use the same encryption key for SD card portability.
+      Data format: [2B magic][12B IV][encrypted data][16B auth tag]
+
+if AKIRA_SETTINGS_ENCRYPTION
+
+config AKIRA_SETTINGS_ENCRYPTION_KEY_HEX
+    string "Encryption key (64 hex characters for AES-256)"
+    default "c3c3a4e60f1991e85d7796890710e99338a4c5ac93bffc5c03dcf662bfcf9dee"
+    help
+      AES-256 encryption key in hexadecimal format (64 hex chars = 32 bytes).
+      
+      IMPORTANT: 
+      - All devices must use the SAME key for SD card portability
+
+config AKIRA_SETTINGS_ENCRYPTION_HW_ACCEL
+    bool "Use hardware AES acceleration"
+    default y if SOC_ESP32 || SOC_SERIES_ESP32S3
+    default n
+    select MBEDTLS_HARDWARE_ACCELERATION if SOC_ESP32 || SOC_SERIES_ESP32S3
+    help
+      Enable hardware AES acceleration for faster encryption/decryption.
+      
+      Supported platforms:
+      - ESP32, ESP32-S3, ESP32-C3 (xtensa-esp32-aes)
+      - STM32F4/F7/H7 (CRYP/HASH)
+      - nRF52/53 with CryptoCell
+      
+      Hardware acceleration provides 5-10x speedup over software AES.
+
+endif # AKIRA_SETTINGS_ENCRYPTION
+
+endmenu
+
+# ---------------------------------------------------------------------------
+# SYS_INIT priorities — controls automatic subsystem startup order
+# Lower value = runs first; all at APPLICATION init level
+# ---------------------------------------------------------------------------
+menu "AkiraOS init priorities"
+
+config AKIRA_FS_INIT_PRIORITY
+	int "Filesystem manager SYS_INIT priority"
+	depends on FILE_SYSTEM
+	default 40
+	help
+	  Automatic init priority for fs_manager.  Lower values run earlier.
+
+config AKIRA_SETTINGS_INIT_PRIORITY
+	int "Settings subsystem SYS_INIT priority"
+	depends on AKIRA_SETTINGS
+	default 50
+	help
+	  Must be greater than AKIRA_FS_INIT_PRIORITY when settings are
+	  backed by the filesystem.
+
+config AKIRA_USB_INIT_PRIORITY
+	int "USB manager SYS_INIT priority"
+	depends on AKIRA_USB
+	default 60
+	help
+	  Automatic init priority for usb_manager.
+
+config AKIRA_BT_INIT_PRIORITY
+	int "Bluetooth manager SYS_INIT priority"
+	depends on BT
+	default 70
+	help
+	  Automatic init priority for bt_manager.
+
+endmenu
+
+# End of Kconfig
 endmenu

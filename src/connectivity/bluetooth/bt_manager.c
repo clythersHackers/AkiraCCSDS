@@ -23,6 +23,14 @@
 #include "bt_echo.h"
 #endif
 
+#ifdef CONFIG_BT_BAS
+#include <zephyr/bluetooth/services/bas.h>
+#endif
+
+#if defined(CONFIG_AKIRA_WASM_BLE)
+#include "ble_app_service.h"
+#endif
+
 LOG_MODULE_REGISTER(bt_manager, CONFIG_AKIRA_LOG_LEVEL);
 
 /*===========================================================================*/
@@ -32,12 +40,15 @@ LOG_MODULE_REGISTER(bt_manager, CONFIG_AKIRA_LOG_LEVEL);
 static struct
 {
     bool initialized;
+    bool hid_active;   /**< true when HID was started at boot via SYS_INIT */
     bt_config_t config;
     bt_state_t state;
     bt_stats_t stats;
+    bt_manager_mode_t mode;
 
 #if BT_AVAILABLE
     struct bt_conn *current_conn;
+    struct k_work_delayable reconnect_work;
 #endif
 
     bt_event_callback_t event_cb;
@@ -60,6 +71,22 @@ static void notify_event(bt_event_t event, void *data)
 
 #if BT_AVAILABLE
 
+/**
+ * @brief Delayed work handler for reconnect advertising
+ * 
+ * This work item restarts advertising after a configurable delay,
+ * giving the phone time to clean up the previous connection.
+ */
+static void reconnect_work_handler(struct k_work *work)
+{
+    LOG_INF("Restarting advertising after disconnect delay");
+    
+    if (bt_mgr.config.auto_advertise && bt_mgr.state == BT_STATE_READY)
+    {
+        bt_manager_start_advertising();
+    }
+}
+
 static void connected_cb(struct bt_conn *conn, uint8_t err)
 {
     if (err)
@@ -78,7 +105,12 @@ static void connected_cb(struct bt_conn *conn, uint8_t err)
     LOG_INF("Connected: %s", addr);
 
     notify_event(BT_EVENT_CONNECTED, NULL);
-} 
+#if defined(CONFIG_AKIRA_WASM_BLE)
+    if (bt_mgr.mode == BT_MODE_BLE_APP) {
+        ble_app_push_conn_event(BLE_EVT_CONNECTED);
+    }
+#endif
+}
 
 static void disconnected_cb(struct bt_conn *conn, uint8_t reason)
 {
@@ -86,6 +118,7 @@ static void disconnected_cb(struct bt_conn *conn, uint8_t reason)
     bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
     LOG_INF("Disconnected: %s (reason 0x%02x)", addr, reason);
 
+    /* Clean up connection reference */
     if (bt_mgr.current_conn)
     {
         bt_conn_unref(bt_mgr.current_conn);
@@ -96,14 +129,37 @@ static void disconnected_cb(struct bt_conn *conn, uint8_t reason)
     bt_mgr.stats.disconnections++;
 
     notify_event(BT_EVENT_DISCONNECTED, NULL);
+#if defined(CONFIG_AKIRA_WASM_BLE)
+    if (bt_mgr.mode == BT_MODE_BLE_APP) {
+        ble_app_push_conn_event(BLE_EVT_DISCONNECTED);
+    }
+#endif
 
-    /* Auto-restart advertising if configured */
+    /* Cancel any pending reconnect work */
+    k_work_cancel_delayable(&bt_mgr.reconnect_work);
+
+    /* Restart advertising with configurable delay to allow phone cleanup */
     if (bt_mgr.config.auto_advertise)
     {
+#ifdef CONFIG_BT_RECONNECT_DELAY_MS
+        if (CONFIG_BT_RECONNECT_DELAY_MS > 0)
+        {
+            LOG_INF("Scheduling advertising restart in %d ms", CONFIG_BT_RECONNECT_DELAY_MS);
+            k_work_schedule(&bt_mgr.reconnect_work, K_MSEC(CONFIG_BT_RECONNECT_DELAY_MS));
+        }
+        else
+        {
+            /* No delay - start advertising immediately */
+            bt_manager_start_advertising();
+        }
+#else
+        /* No delay configured - start advertising immediately */
         bt_manager_start_advertising();
+#endif
     }
 
 #if defined(CONFIG_AKIRA_BT_ECHO)
+    /* Reinitialize echo service for next connection */
     bt_echo_init();
 #endif
 }
@@ -118,6 +174,15 @@ static void security_changed_cb(struct bt_conn *conn, bt_security_t level,
     if (err)
     {
         LOG_WRN("Security failed: %s level %d err %d", addr, level, err);
+
+        if (err == BT_SECURITY_ERR_AUTH_FAIL || err == BT_SECURITY_ERR_PIN_OR_KEY_MISSING)
+        {
+            /* Stale bond — LTK no longer matches. Wipe it and force a fresh pair
+             * so the peer does not need to manually "Forget Device". */
+            LOG_INF("Stale bond for %s — wiping and requesting re-pair", addr);
+            bt_unpair(BT_ID_DEFAULT, bt_conn_get_dst(conn));
+            bt_conn_set_security(conn, BT_SECURITY_L2 | BT_SECURITY_FORCE_PAIR);
+        }
         return;
     }
 
@@ -129,6 +194,41 @@ static void security_changed_cb(struct bt_conn *conn, bt_security_t level,
         notify_event(BT_EVENT_PAIRED, NULL);
     }
 }
+
+/* Pairing auth callbacks — NoInputNoOutput IO capability (just-works).
+ * pairing_confirm MUST be provided and call bt_conn_auth_pairing_confirm()
+ * otherwise Zephyr leaves the pairing request unanswered and iOS times out
+ * showing "Pairing Unsuccessful". */
+static void auth_pairing_confirm(struct bt_conn *conn)
+{
+    char addr[BT_ADDR_LE_STR_LEN];
+    bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
+    LOG_INF("Pairing confirm (just-works): %s — accepting", addr);
+    bt_conn_auth_pairing_confirm(conn);
+}
+
+static void auth_pairing_complete(struct bt_conn *conn, bool bonded)
+{
+    char addr[BT_ADDR_LE_STR_LEN];
+    bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
+    LOG_INF("Pairing complete: %s bonded=%d", addr, bonded);
+}
+
+static void auth_pairing_failed(struct bt_conn *conn, enum bt_security_err reason)
+{
+    char addr[BT_ADDR_LE_STR_LEN];
+    bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
+    LOG_WRN("Pairing failed: %s reason %d", addr, reason);
+}
+
+static const struct bt_conn_auth_cb auth_callbacks = {
+    .pairing_confirm = auth_pairing_confirm,
+};
+
+static const struct bt_conn_auth_info_cb auth_info_callbacks = {
+    .pairing_complete = auth_pairing_complete,
+    .pairing_failed   = auth_pairing_failed,
+};
 #endif /* CONFIG_BT_SMP || CONFIG_BT_CLASSIC */
 
 static struct bt_conn_cb conn_callbacks = {
@@ -142,6 +242,13 @@ static struct bt_conn_cb conn_callbacks = {
 /* Advertising data */
 static const struct bt_data ad[] = {
     BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
+#if CONFIG_AKIRA_HID_MODE_KB_MOUSE
+    BT_DATA_BYTES(BT_DATA_GAP_APPEARANCE,
+                BT_BYTES_LIST_LE16(0x03C1)), /* Keyboard */
+#elif CONFIG_AKIRA_HID_MODE_GAMEPAD
+    BT_DATA_BYTES(BT_DATA_GAP_APPEARANCE,
+                BT_BYTES_LIST_LE16(0x03C4)), /* Gamepad */
+#endif
     BT_DATA_BYTES(BT_DATA_UUID16_ALL,
                   BT_UUID_16_ENCODE(BT_UUID_HIDS_VAL),
                   BT_UUID_16_ENCODE(BT_UUID_BAS_VAL)),
@@ -183,6 +290,9 @@ int bt_manager_init(const bt_config_t *config)
     bt_mgr.state = BT_STATE_INITIALIZING;
 
 #if BT_AVAILABLE
+    /* Initialize delayed work for reconnection */
+    k_work_init_delayable(&bt_mgr.reconnect_work, reconnect_work_handler);
+    
     int err = bt_enable(NULL);
     if (err)
     {
@@ -197,7 +307,17 @@ int bt_manager_init(const bt_config_t *config)
         settings_load();
     }
 
+#ifdef CONFIG_BT_BAS
+    /* HOGP mandates Battery Service; report 100% so iOS completes HID enumeration */
+    bt_bas_set_battery_level(100);
+#endif
+
     bt_conn_cb_register(&conn_callbacks);
+
+#if defined(CONFIG_BT_SMP) || defined(CONFIG_BT_CLASSIC)
+    bt_conn_auth_cb_register(&auth_callbacks);
+    bt_conn_auth_info_cb_register(&auth_info_callbacks);
+#endif
 
     bt_mgr.state = BT_STATE_READY;
     bt_mgr.initialized = true;
@@ -251,7 +371,7 @@ int bt_manager_start_advertising(void)
     }
 
     struct bt_le_adv_param adv_param = BT_LE_ADV_PARAM_INIT(
-        BT_LE_ADV_OPT_CONNECTABLE,
+        BT_LE_ADV_OPT_CONN,
         BT_GAP_ADV_FAST_INT_MIN_2,
         BT_GAP_ADV_FAST_INT_MAX_2,
         NULL);
@@ -262,7 +382,11 @@ int bt_manager_start_advertising(void)
     };
 
     int err = bt_le_adv_start(&adv_param, ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd));
-    if (err)
+    if(err == -EALREADY){
+        LOG_INF("BT already advertising!");
+        return err;
+    }
+    else if (err)
     {
         LOG_ERR("Advertising start failed (err %d)", err);
         return err;
@@ -377,13 +501,118 @@ int bt_manager_get_address(char *buffer, size_t len)
 }
 
 /*===========================================================================*/
-/* Shell Integration                                                         */
+/* Mode Switch                                                               */
 /*===========================================================================*/
 
-void bluetooth_manager_receive_shell_command(const char *cmd)
+int bt_manager_set_mode(bt_manager_mode_t mode)
 {
-    /* Stub for shell command reception via BLE
-     * TODO: Implement BLE shell command passthrough
-     */
-    LOG_DBG("BLE shell command received: %s", cmd);
+    k_mutex_lock(&bt_mgr.mutex, K_FOREVER);
+
+    if (mode != BT_MODE_NONE && bt_mgr.mode != BT_MODE_NONE && bt_mgr.mode != mode) {
+        /* HID and BLE_APP can coexist: HID uses BLE HID profile,
+         * BLE_APP adds custom GATT services on the same stack. */
+        if ((bt_mgr.mode == BT_MODE_HID && mode == BT_MODE_BLE_APP) ||
+            (bt_mgr.mode == BT_MODE_BLE_APP && mode == BT_MODE_HID)) {
+            LOG_INF("BT: HID and BLE_APP sharing stack, switching to mode %d", mode);
+        } else {
+            k_mutex_unlock(&bt_mgr.mutex);
+            LOG_ERR("BT mode conflict: active=%d requested=%d", bt_mgr.mode, mode);
+            return -EBUSY;
+        }
+    }
+
+    /* When HID was started at boot, releasing to NONE restores it */
+    if (mode == BT_MODE_NONE && bt_mgr.hid_active) {
+        bt_mgr.mode = BT_MODE_HID;
+    } else {
+        bt_mgr.mode = mode;
+    }
+    k_mutex_unlock(&bt_mgr.mutex);
+
+    /* Lazy init when transitioning out of NONE and not yet initialized */
+    if (mode != BT_MODE_NONE && !bt_mgr.initialized) {
+        bt_config_t lazy_cfg = {
+            .device_name    = "AkiraOS",
+            .auto_advertise = false,
+            .pairable       = true,
+        };
+        return bt_manager_init(&lazy_cfg);
+    }
+
+    LOG_INF("BT mode set to %d", mode);
+    return 0;
 }
+
+bt_manager_mode_t bt_manager_get_mode(void)
+{
+    return bt_mgr.mode;
+}
+
+/*===========================================================================*/
+/* Custom Advertising (BLE_APP mode)                                        */
+/*===========================================================================*/
+
+int bt_manager_start_advertising_custom(const uint8_t svc_uuid128[16])
+{
+#if BT_AVAILABLE
+    if (!bt_mgr.initialized) {
+        return -EINVAL;
+    }
+    if (bt_mgr.state == BT_STATE_CONNECTED) {
+        return -EBUSY;
+    }
+
+    struct bt_le_adv_param adv_param = BT_LE_ADV_PARAM_INIT(
+        BT_LE_ADV_OPT_CONN,
+        BT_GAP_ADV_FAST_INT_MIN_2,
+        BT_GAP_ADV_FAST_INT_MAX_2,
+        NULL);
+
+    /* Flags only in advert payload — keeps it minimal */
+    struct bt_data custom_ad[] = {
+        BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
+    };
+
+    /* Scan response: name + optional 128-bit service UUID */
+    struct bt_data sd[2];
+    uint8_t sd_count = 0;
+
+    sd[sd_count++] = (struct bt_data)BT_DATA(
+        BT_DATA_NAME_COMPLETE,
+        bt_mgr.config.device_name,
+        strlen(bt_mgr.config.device_name));
+
+    if (svc_uuid128) {
+        sd[sd_count++] = (struct bt_data)BT_DATA(
+            BT_DATA_UUID128_ALL, svc_uuid128, 16);
+    }
+
+    int err = bt_le_adv_start(&adv_param, custom_ad, ARRAY_SIZE(custom_ad),
+                               sd, sd_count);
+    if (err == -EALREADY) {
+        LOG_INF("BT already advertising");
+        return 0;
+    } else if (err) {
+        LOG_ERR("Custom advertising start failed: %d", err);
+        return err;
+    }
+
+    bt_mgr.state = BT_STATE_ADVERTISING;
+    LOG_INF("BLE app advertising started");
+    return 0;
+#else
+    bt_mgr.state = BT_STATE_ADVERTISING;
+    return 0;
+#endif
+}
+
+#ifdef CONFIG_AKIRA_BT_HID
+/* HID mode: eagerly initialise at boot so HID profile is ready immediately */
+static int bt_manager_sys_init(void)
+{
+    bt_mgr.mode = BT_MODE_HID;
+    bt_mgr.hid_active = true;
+    return bt_manager_init(NULL);
+}
+SYS_INIT(bt_manager_sys_init, APPLICATION, CONFIG_AKIRA_BT_INIT_PRIORITY);
+#endif

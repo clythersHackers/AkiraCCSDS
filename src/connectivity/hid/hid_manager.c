@@ -7,6 +7,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include <string.h>
+#include <lib/mem_helper.h>
 
 LOG_MODULE_REGISTER(hid_manager, CONFIG_AKIRA_LOG_LEVEL);
 
@@ -210,13 +211,15 @@ int hid_manager_init(const hid_config_t *config)
     }
     else
     {
-        /* Default config */
-        hid_mgr.config.device_types = HID_DEVICE_COMBO;
-        hid_mgr.config.preferred_transport = HID_TRANSPORT_BLE;
+        /* Default config — transport is chosen at enable time by the first
+         * registered transport (or via hid_manager_set_transport).
+         * WASM apps call hid_set_transport(BLE) + hid_enable() explicitly. */
+        hid_mgr.config.device_types = HID_DEVICE_KEYBOARD;
+        hid_mgr.config.preferred_transport = HID_TRANSPORT_NONE;
         hid_mgr.config.device_name = "AkiraOS HID";
         hid_mgr.config.vendor_id = 0x1234;
         hid_mgr.config.product_id = 0x5678;
-        hid_mgr.state.device_type = HID_DEVICE_COMBO;
+        hid_mgr.state.device_type = HID_DEVICE_KEYBOARD;
     }
 
     hid_mgr.initialized = true;
@@ -254,7 +257,11 @@ int hid_manager_enable(void)
     k_mutex_lock(&hid_mgr.mutex, K_FOREVER);
 
     /* Find preferred transport */
-    hid_mgr.active_transport = find_transport(hid_mgr.config.preferred_transport);
+    if(!hid_mgr.active_transport){
+        LOG_INF("Selecting HID transport: %d", hid_mgr.config.preferred_transport);
+        hid_mgr.active_transport = find_transport(hid_mgr.config.preferred_transport);
+    }
+    
     if (!hid_mgr.active_transport && hid_mgr.transport_count > 0)
     {
         hid_mgr.active_transport = hid_mgr.transports[0];
@@ -362,6 +369,46 @@ hid_transport_t hid_manager_get_transport(void)
     return hid_mgr.state.transport;
 }
 
+int hid_manager_set_device_types(hid_device_type_t types)
+{
+    if (!hid_mgr.initialized)
+    {
+        return -EINVAL;
+    }
+
+    k_mutex_lock(&hid_mgr.mutex, K_FOREVER);
+
+    if (hid_mgr.state.enabled)
+    {
+        k_mutex_unlock(&hid_mgr.mutex);
+        LOG_WRN("Cannot change device types while HID is enabled");
+        return -EBUSY;
+    }
+
+    hid_mgr.config.device_types = types;
+    hid_mgr.state.device_type   = types;
+
+    k_mutex_unlock(&hid_mgr.mutex);
+
+    LOG_INF("HID device types set to 0x%02x", (unsigned)types);
+    return 0;
+}
+
+int hid_manager_setup(hid_transport_t transport, hid_device_type_t device_types)
+{
+    int rc = hid_manager_set_transport(transport);
+    if (rc < 0) {
+        LOG_ERR("hid_manager_setup: set_transport failed: %d", rc);
+        return rc;
+    }
+    rc = hid_manager_set_device_types(device_types);
+    if (rc < 0) {
+        LOG_ERR("hid_manager_setup: set_device_types failed: %d", rc);
+        return rc;
+    }
+    return hid_manager_enable();
+}
+
 bool hid_manager_is_connected(void)
 {
     if (!hid_mgr.active_transport || !hid_mgr.active_transport->is_connected)
@@ -380,6 +427,21 @@ const hid_state_t *hid_manager_get_state(void)
 /*===========================================================================*/
 /* Keyboard API Implementation                                               */
 /*===========================================================================*/
+
+const char *transport_to_string(hid_transport_t transport){
+    switch(transport){
+        case HID_TRANSPORT_NONE:
+            return "NONE";
+        case HID_TRANSPORT_BLE:
+            return "BLE";
+        case HID_TRANSPORT_USB:
+            return "USB";
+        case HID_TRANSPORT_SIMULATED:
+            return "SIMULATED";
+        default:
+            return "UNKNOWN";
+    }
+}
 
 int hid_keyboard_press(hid_key_code_t key)
 {
@@ -605,7 +667,242 @@ int hid_gamepad_reset(void)
 }
 
 /*===========================================================================*/
-/* Callback Registration                                                     */
+/* Mouse API                                                                 */
+/*===========================================================================*/
+
+static int send_mouse_report(void)
+{
+    if (!hid_mgr.active_transport || !hid_mgr.active_transport->send_mouse) {
+        return -ENOTSUP;
+    }
+
+    int ret = hid_mgr.active_transport->send_mouse(&hid_mgr.state.mouse);
+    if (ret == 0) {
+        hid_mgr.state.reports_sent++;
+    } else {
+        hid_mgr.state.errors++;
+    }
+
+    /* Clear deltas after send — buttons stay latched until explicitly released */
+    hid_mgr.state.mouse.dx    = 0;
+    hid_mgr.state.mouse.dy    = 0;
+    hid_mgr.state.mouse.wheel = 0;
+
+    return ret;
+}
+
+int hid_mouse_move(int8_t dx, int8_t dy)
+{
+    if (!hid_mgr.initialized) {
+        return -EINVAL;
+    }
+
+    k_mutex_lock(&hid_mgr.mutex, K_FOREVER);
+    hid_mgr.state.mouse.dx = dx;
+    hid_mgr.state.mouse.dy = dy;
+    int ret = send_mouse_report();
+    k_mutex_unlock(&hid_mgr.mutex);
+    return ret;
+}
+
+int hid_mouse_button_press(uint8_t button)
+{
+    if (!hid_mgr.initialized) {
+        return -EINVAL;
+    }
+
+    k_mutex_lock(&hid_mgr.mutex, K_FOREVER);
+    hid_mgr.state.mouse.buttons |= button;
+    int ret = send_mouse_report();
+    k_mutex_unlock(&hid_mgr.mutex);
+    return ret;
+}
+
+int hid_mouse_button_release(uint8_t button)
+{
+    if (!hid_mgr.initialized) {
+        return -EINVAL;
+    }
+
+    k_mutex_lock(&hid_mgr.mutex, K_FOREVER);
+    hid_mgr.state.mouse.buttons &= ~button;
+    int ret = send_mouse_report();
+    k_mutex_unlock(&hid_mgr.mutex);
+    return ret;
+}
+
+int hid_mouse_scroll(int8_t delta)
+{
+    if (!hid_mgr.initialized) {
+        return -EINVAL;
+    }
+
+    k_mutex_lock(&hid_mgr.mutex, K_FOREVER);
+    hid_mgr.state.mouse.wheel = delta;
+    int ret = send_mouse_report();
+    k_mutex_unlock(&hid_mgr.mutex);
+    return ret;
+}
+
+int hid_mouse_reset(void)
+{
+    if (!hid_mgr.initialized) {
+        return -EINVAL;
+    }
+
+    k_mutex_lock(&hid_mgr.mutex, K_FOREVER);
+    memset(&hid_mgr.state.mouse, 0, sizeof(hid_mouse_report_t));
+    int ret = send_mouse_report();
+    k_mutex_unlock(&hid_mgr.mutex);
+    return ret;
+}
+
+/*===========================================================================*/
+/* Consumer / Media Key API                                                  */
+/*===========================================================================*/
+
+int hid_consumer_send(uint16_t usage)
+{
+    if (!hid_mgr.initialized) {
+        return -EINVAL;
+    }
+
+    if (!hid_mgr.active_transport || !hid_mgr.active_transport->send_consumer) {
+        return -ENOTSUP;
+    }
+
+    k_mutex_lock(&hid_mgr.mutex, K_FOREVER);
+
+    /* Press */
+    hid_mgr.state.consumer.usage = usage;
+    int ret = hid_mgr.active_transport->send_consumer(&hid_mgr.state.consumer);
+    if (ret == 0) {
+        hid_mgr.state.reports_sent++;
+    } else {
+        hid_mgr.state.errors++;
+    }
+
+    /* Release — send usage=0 */
+    hid_mgr.state.consumer.usage = 0;
+    hid_mgr.active_transport->send_consumer(&hid_mgr.state.consumer);
+
+    k_mutex_unlock(&hid_mgr.mutex);
+    return ret;
+}
+
+/*===========================================================================*/
+/* Raw Report API                                                            */
+/*===========================================================================*/
+
+int hid_send_raw_report(uint8_t report_id, const uint8_t *data, size_t len)
+{
+    if (!hid_mgr.initialized || !data || len == 0) {
+        return -EINVAL;
+    }
+
+    if (!hid_mgr.active_transport || !hid_mgr.active_transport->send_raw) {
+        return -ENOTSUP;
+    }
+
+    k_mutex_lock(&hid_mgr.mutex, K_FOREVER);
+    int ret = hid_mgr.active_transport->send_raw(report_id, data, len);
+    if (ret == 0) {
+        hid_mgr.state.reports_sent++;
+    } else {
+        hid_mgr.state.errors++;
+    }
+    k_mutex_unlock(&hid_mgr.mutex);
+    return ret;
+}
+
+/*===========================================================================*/
+/* Named Action Registry                                                     */
+/*===========================================================================*/
+
+#ifndef CONFIG_AKIRA_HID_MAX_ACTIONS
+#define CONFIG_AKIRA_HID_MAX_ACTIONS 16
+#endif
+
+/** Named keyboard shortcut binding */
+typedef struct {
+    char     name[32];
+    uint8_t  modifier;
+    uint8_t  keycode;
+    bool     used;
+} hid_action_entry_t;
+
+/* On PSRAM boards this lands in external RAM; otherwise in internal DRAM.
+ * Keep CONFIG_AKIRA_HID_MAX_ACTIONS small (default 8) on non-PSRAM boards. */
+static hid_action_entry_t AKIRA_BULK_BSS g_hid_actions[CONFIG_AKIRA_HID_MAX_ACTIONS];
+static struct k_mutex g_hid_actions_mutex = Z_MUTEX_INITIALIZER(g_hid_actions_mutex);
+
+int hid_action_register(const char *name, uint8_t modifier, uint8_t keycode)
+{
+    if (!name || name[0] == '\0') {
+        return -EINVAL;
+    }
+
+    k_mutex_lock(&g_hid_actions_mutex, K_FOREVER);
+
+    /* Update existing entry if name matches */
+    for (int i = 0; i < CONFIG_AKIRA_HID_MAX_ACTIONS; i++) {
+        if (g_hid_actions[i].used &&
+            strncmp(g_hid_actions[i].name, name, sizeof(g_hid_actions[i].name) - 1) == 0) {
+            g_hid_actions[i].modifier = modifier;
+            g_hid_actions[i].keycode  = keycode;
+            k_mutex_unlock(&g_hid_actions_mutex);
+            return 0;
+        }
+    }
+
+    /* Find an empty slot */
+    for (int i = 0; i < CONFIG_AKIRA_HID_MAX_ACTIONS; i++) {
+        if (!g_hid_actions[i].used) {
+            strncpy(g_hid_actions[i].name, name, sizeof(g_hid_actions[i].name) - 1);
+            g_hid_actions[i].name[sizeof(g_hid_actions[i].name) - 1] = '\0';
+            g_hid_actions[i].modifier = modifier;
+            g_hid_actions[i].keycode  = keycode;
+            g_hid_actions[i].used     = true;
+            k_mutex_unlock(&g_hid_actions_mutex);
+            LOG_DBG("Action registered: '%s' mod=0x%02x key=0x%02x",
+                    name, modifier, keycode);
+            return 0;
+        }
+    }
+
+    k_mutex_unlock(&g_hid_actions_mutex);
+    LOG_WRN("Action table full (max %d)", CONFIG_AKIRA_HID_MAX_ACTIONS);
+    return -ENOMEM;
+}
+
+int hid_action_trigger(const char *name)
+{
+    if (!name || name[0] == '\0') {
+        return -EINVAL;
+    }
+
+    k_mutex_lock(&g_hid_actions_mutex, K_FOREVER);
+
+    for (int i = 0; i < CONFIG_AKIRA_HID_MAX_ACTIONS; i++) {
+        if (g_hid_actions[i].used &&
+            strncmp(g_hid_actions[i].name, name, sizeof(g_hid_actions[i].name)) == 0) {
+
+            uint8_t mod = g_hid_actions[i].modifier;
+            uint8_t key = g_hid_actions[i].keycode;
+            k_mutex_unlock(&g_hid_actions_mutex);
+
+            /* Press modifier + key, then release all */
+            hid_keyboard_set_modifiers(mod);
+            hid_keyboard_press(key);
+            hid_keyboard_release_all();
+            return 0;
+        }
+    }
+
+    k_mutex_unlock(&g_hid_actions_mutex);
+    LOG_WRN("Action not found: '%s'", name);
+    return -ENOENT;
+}
 /*===========================================================================*/
 
 int hid_manager_register_event_callback(hid_event_callback_t callback, void *user_data)

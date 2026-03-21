@@ -17,7 +17,6 @@
 #include "shell_display.h"
 #include "../drivers/platform_hal.h"
 #include "../settings/settings.h"
-#include "../OTA/web_server.h"
 #if defined(CONFIG_BT)
 #include "connectivity/bluetooth/bt_manager.h"
 #if defined(CONFIG_AKIRA_BT_ECHO)
@@ -37,23 +36,40 @@
 #include <zephyr/sys/heap_listener.h>
 #include <zephyr/sys/mem_stats.h>
 #include <zephyr/net/net_if.h>
+#ifdef CONFIG_WIFI
 #include <zephyr/net/wifi_mgmt.h>
+#endif
 #include <zephyr/net/net_mgmt.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <inttypes.h>
+#if defined(CONFIG_FAT_FILESYSTEM_ELM)
 #include <ff.h>
-#include "akira/akira.h"
+#endif
+#include "akira.h"
 #include "../storage/fs_manager.h"
+#include "../api/akira_gpio_api.h"
 #ifdef CONFIG_AKIRA_APP_MANAGER
-#include "../services/app_manager.h"
+#include <runtime/app_manager/app_manager.h>
 #endif
 #if defined(CONFIG_AKIRA_APP_SOURCE_SD)
 #include "../connectivity/storage/sd_manager.h"
 #endif
 #if defined(CONFIG_AKIRA_APP_SOURCE_USB)
 #include "../connectivity/storage/usb_storage.h"
+#endif
+#if defined(CONFIG_AKIRA_RADIO_MANAGER)
+#include "connectivity/radio_interface.h"
+#endif
+#if defined(CONFIG_AKIRA_MATTER)
+#include "connectivity/matter_manager.h"
+#endif
+#if defined(CONFIG_AKIRA_THREAD)
+#include "connectivity/thread_manager.h"
+#endif
+#if defined(CONFIG_AKIRA_MESH)
+#include "connectivity/akira_mesh.h"
 #endif
 
 LOG_MODULE_REGISTER(akira_shell, AKIRA_LOG_LEVEL);
@@ -65,31 +81,38 @@ static bool shell_display_enabled = IS_ENABLED(CONFIG_ILI9341);
 static void akira_shell_print_internal(const struct shell *sh, const char *text, bool is_error)
 {
     /* Print to UART/console (normal behavior) */
-    if (is_error) {
+    if (is_error)
+    {
         shell_fprintf(sh, SHELL_ERROR, "%s\n", text);
-    } else {
+    }
+    else
+    {
         shell_fprintf(sh, SHELL_NORMAL, "%s\n", text);
     }
-    
+#ifdef CONFIG_DISPLAY
     /* Also display on screen if enabled */
-    if (shell_display_enabled && shell_display_is_enabled()) {
+    if (shell_display_enabled && shell_display_is_enabled())
+    {
         shell_display_print(text, is_error ? SHELL_TEXT_ERROR : SHELL_TEXT_NORMAL);
     }
+#endif 
 }
 
 /* Wrapper macros for intercepting shell output */
-#define AKIRA_SHELL_PRINT(sh, fmt, ...) \
-    do { \
-        char _buf[256]; \
+#define AKIRA_SHELL_PRINT(sh, fmt, ...)                   \
+    do                                                    \
+    {                                                     \
+        char _buf[256];                                   \
         snprintf(_buf, sizeof(_buf), fmt, ##__VA_ARGS__); \
-        akira_shell_print_internal(sh, _buf, false); \
+        akira_shell_print_internal(sh, _buf, false);      \
     } while (0)
 
-#define AKIRA_SHELL_ERROR(sh, fmt, ...) \
-    do { \
-        char _buf[256]; \
+#define AKIRA_SHELL_ERROR(sh, fmt, ...)                   \
+    do                                                    \
+    {                                                     \
+        char _buf[256];                                   \
         snprintf(_buf, sizeof(_buf), fmt, ##__VA_ARGS__); \
-        akira_shell_print_internal(sh, _buf, true); \
+        akira_shell_print_internal(sh, _buf, true);       \
     } while (0)
 
 #ifdef CONFIG_AKIRA_APP_MANAGER
@@ -107,8 +130,8 @@ static int cmd_app_list(const struct shell *sh, size_t argc, char **argv)
     for (int i = 0; i < count; i++)
     {
         AKIRA_SHELL_PRINT(sh, "%2d: %-16s %-8s %s %u bytes%s", apps[i].id, apps[i].name, apps[i].version,
-                    app_state_to_str(apps[i].state), apps[i].size,
-                    apps[i].auto_restart ? " [auto-restart]" : "");
+                          app_state_to_str(apps[i].state), apps[i].size,
+                          apps[i].auto_restart ? " [auto-restart]" : "");
     }
     AKIRA_SHELL_PRINT(sh, "Total: %d", count);
     return 0;
@@ -205,6 +228,50 @@ static int cmd_app_uninstall(const struct shell *sh, size_t argc, char **argv)
         return ret;
     }
     shell_print(sh, "App uninstalled: %s", argv[1]);
+    return 0;
+}
+
+static int cmd_app_install(const struct shell *sh, size_t argc, char **argv)
+{
+    if (argc < 3)
+    {
+        shell_error(sh, "Usage: app install <name> <sd|usb>");
+        return -EINVAL;
+    }
+    const char *name = argv[1];
+    const char *src  = argv[2];
+    int ret = -ENOTSUP;
+
+    if (strcmp(src, "sd") == 0)
+    {
+#if defined(CONFIG_AKIRA_APP_SOURCE_SD)
+        ret = sd_manager_install_app(name);
+#else
+        shell_error(sh, "SD card support not enabled");
+        return -ENOTSUP;
+#endif
+    }
+    else if (strcmp(src, "usb") == 0)
+    {
+#if defined(CONFIG_AKIRA_APP_SOURCE_USB)
+        ret = usb_storage_install_app(name);
+#else
+        shell_error(sh, "USB storage support not enabled");
+        return -ENOTSUP;
+#endif
+    }
+    else
+    {
+        shell_error(sh, "Unknown source '%s'. Use sd or usb.", src);
+        return -EINVAL;
+    }
+
+    if (ret < 0)
+    {
+        shell_error(sh, "Install failed (%d): %s from %s", ret, name, src);
+        return ret;
+    }
+    shell_print(sh, "Installed '%s' from %s", name, src);
     return 0;
 }
 
@@ -307,12 +374,6 @@ static const struct gpio_dt_spec button_specs[] = {
     /* Add more buttons as defined in overlay */
 };
 
-/* Button name lookup table for efficient display */
-static const char *const button_names[] = {
-    "ON/OFF", "Settings", "D-Pad Up", "D-Pad Down",
-    "D-Pad Left", "D-Pad Right", "Button A", "Button B",
-    "Button X", "Button Y"};
-
 /* Work queue for periodic tasks */
 static struct k_work_q shell_workq;
 static K_THREAD_STACK_DEFINE(shell_workq_stack, 1024); /* Reduced to save memory */
@@ -363,7 +424,7 @@ static int init_gpio_pins(void)
             return -ENODEV;
         }
 
-        int ret = gpio_pin_configure_dt(&button_specs[i], GPIO_INPUT | GPIO_PULL_UP);
+        int ret = gpio_pin_configure_dt(&button_specs[i], GPIO_INPUT | GPIO_PULL_DOWN);
         if (ret)
         {
             LOG_ERR("Failed to configure button %zu: %d", i, ret);
@@ -458,10 +519,11 @@ static void stats_update_work_handler(struct k_work *work)
 /* Status bar update work */
 static void status_bar_update_work_handler(struct k_work *work)
 {
-    if (shell_display_enabled && shell_display_is_enabled()) {
+    if (shell_display_enabled && shell_display_is_enabled())
+    {
         shell_display_update_status();
     }
-    
+
     /* Reschedule for next update */
     struct k_work_delayable *dwork = k_work_delayable_from_work(work);
     k_work_reschedule_for_queue(&shell_workq, dwork, K_SECONDS(1));
@@ -493,22 +555,26 @@ int akira_shell_init(void)
     update_system_stats();
 
     /* Initialize shell display if available */
-    if (shell_display_enabled) {
+    if (shell_display_enabled)
+    {
         ret = shell_display_init();
-        if (ret < 0) {
+        if (ret < 0)
+        {
             LOG_WRN("Shell display init failed: %d", ret);
             shell_display_enabled = false;
-        } else {
+        }
+        else
+        {
             /* Start status bar updates */
             k_work_schedule_for_queue(&shell_workq, &status_bar_work, K_SECONDS(1));
-            
+
             /* Welcome message */
             shell_display_print("", SHELL_TEXT_NORMAL);
             shell_display_print("=== AkiraOS Shell ===", SHELL_TEXT_PROMPT);
             char version[32];
-        snprintf(version, sizeof(version), "%d.%d.%d", 
-                 AKIRA_VERSION_MAJOR, AKIRA_VERSION_MINOR, AKIRA_VERSION_PATCH);
-        shell_display_printf(SHELL_TEXT_NORMAL, "Version: %s", version);
+            snprintf(version, sizeof(version), "%d.%d.%d",
+                     AKIRA_VERSION_MAJOR, AKIRA_VERSION_MINOR, AKIRA_VERSION_PATCH);
+            shell_display_printf(SHELL_TEXT_NORMAL, "Version: %s", version);
             shell_display_print("Type 'help' for commands", SHELL_TEXT_NORMAL);
             shell_display_print("", SHELL_TEXT_NORMAL);
         }
@@ -566,8 +632,8 @@ uint32_t shell_read_buttons(void)
         if (gpio_is_ready_dt(&button_specs[i]))
         {
             int val = gpio_pin_get_dt(&button_specs[i]);
-            if (val == 0)
-            { /* Active low buttons */
+            if (val == 1)
+            { /* Active high buttons (pull-down) */
                 button_state |= (1U << i);
             }
         }
@@ -826,141 +892,94 @@ static int cmd_system_info(const struct shell *sh, size_t argc, char **argv)
     return 0;
 }
 
-static int cmd_buttons_read(const struct shell *sh, size_t argc, char **argv)
-{
-    ARG_UNUSED(argc);
-    ARG_UNUSED(argv);
-
-    uint32_t button_state = shell_read_buttons();
-
-    shell_print(sh, "\n=== Gaming Button States (0x%08x) ===", button_state);
-
-    if (button_state == 0)
-    {
-        shell_print(sh, "No buttons are currently pressed");
-    }
-    else
-    {
-        for (int i = 0; i < 10 && i < ARRAY_SIZE(button_names); i++)
-        {
-            if (button_state & (1U << i))
-            {
-                shell_print(sh, "%s: PRESSED", button_names[i]);
-            }
-        }
-    }
-
-    add_to_history("game buttons");
-    return 0;
-}
-
-static int cmd_display_control(const struct shell *sh, size_t argc, char **argv)
+#ifdef CONFIG_GPIO
+static int cmd_gpio_read(const struct shell *sh, size_t argc, char **argv)
 {
     if (argc < 2)
     {
-        struct display_config config;
-        if (shell_get_display_config(&config) != 0)
-        {
-            shell_error(sh, "Failed to get display config");
-            return -EIO;
-        }
-
-        shell_print(sh, "\n=== Display Configuration ===");
-        shell_print(sh, "Backlight: %s", config.backlight_on ? "ON" : "OFF");
-        shell_print(sh, "Brightness: %d/255", config.brightness);
-        shell_print(sh, "Rotation: %d degrees", config.rotation);
-        shell_print(sh, "Inverted: %s", config.inverted ? "YES" : "NO");
-        shell_print(sh, "\nUsage: game display <backlight|brightness|rotation> <value>");
-        return 0;
-    }
-
-    struct display_config config;
-    if (shell_get_display_config(&config) != 0)
-    {
-        shell_error(sh, "Failed to get current config");
-        return -EIO;
-    }
-
-    bool changed = false;
-    char history_cmd[64];
-
-    if (strcmp(argv[1], "backlight") == 0)
-    {
-        if (argc < 3)
-        {
-            shell_error(sh, "Usage: game display backlight <on|off>");
-            return -EINVAL;
-        }
-        bool new_state = (strcmp(argv[2], "on") == 0);
-        if (config.backlight_on != new_state)
-        {
-            config.backlight_on = new_state;
-            changed = true;
-        }
-        snprintf(history_cmd, sizeof(history_cmd), "game display backlight %s", argv[2]);
-        shell_print(sh, "Display backlight %s", new_state ? "enabled" : "disabled");
-    }
-    else if (strcmp(argv[1], "brightness") == 0)
-    {
-        if (argc < 3)
-        {
-            shell_error(sh, "Usage: game display brightness <0-255>");
-            return -EINVAL;
-        }
-        long brightness = strtol(argv[2], NULL, 10);
-        if (brightness < 0 || brightness > 255)
-        {
-            shell_error(sh, "Brightness must be 0-255");
-            return -EINVAL;
-        }
-        if (config.brightness != (uint8_t)brightness)
-        {
-            config.brightness = (uint8_t)brightness;
-            changed = true;
-        }
-        snprintf(history_cmd, sizeof(history_cmd), "game display brightness %s", argv[2]);
-        shell_print(sh, "Display brightness set to %ld", brightness);
-    }
-    else if (strcmp(argv[1], "rotation") == 0)
-    {
-        if (argc < 3)
-        {
-            shell_error(sh, "Usage: game display rotation <0|90|180|270>");
-            return -EINVAL;
-        }
-        long rotation = strtol(argv[2], NULL, 10);
-        if (rotation != 0 && rotation != 90 && rotation != 180 && rotation != 270)
-        {
-            shell_error(sh, "Rotation must be 0, 90, 180, or 270 degrees");
-            return -EINVAL;
-        }
-        if (config.rotation != (uint16_t)rotation)
-        {
-            config.rotation = (uint16_t)rotation;
-            changed = true;
-        }
-        snprintf(history_cmd, sizeof(history_cmd), "game display rotation %s", argv[2]);
-        shell_print(sh, "Display rotation set to %ld degrees", rotation);
-    }
-    else
-    {
-        shell_error(sh, "Unknown parameter: %s", argv[1]);
+        shell_error(sh, "Usage: gpio read <pin_number>");
         return -EINVAL;
     }
 
-    if (changed)
+    uint32_t pin = strtoul(argv[1], NULL, 10);
+    
+    /* Configure pin as input with pull-down before reading */
+    uint32_t flags = AKIRA_GPIO_INPUT | AKIRA_GPIO_PULL_DOWN;
+    int ret = akira_gpio_configure(pin, flags);
+    if (ret < 0)
     {
-        int ret = shell_control_display(&config);
-        if (ret != 0)
-        {
-            shell_error(sh, "Failed to update display: %d", ret);
-            return ret;
-        }
+        shell_error(sh, "Failed to configure GPIO %u: error %d", pin, ret);
+        return ret;
+    }
+    
+    /* Small delay to let pull-up stabilize */
+    k_msleep(1);
+    
+    int value = akira_gpio_read(pin);
+    if (value < 0)
+    {
+        shell_error(sh, "Failed to read GPIO %u: error %d", pin, value);
+        return value;
     }
 
-    add_to_history(history_cmd);
+    shell_print(sh, "GPIO %u: %d", pin, value);
     return 0;
 }
+
+static int cmd_gpio_configure(const struct shell *sh, size_t argc, char **argv)
+{
+    if (argc < 3)
+    {
+        shell_error(sh, "Usage: gpio configure <pin_number> <mode>");
+        shell_print(sh, "Modes:");
+        shell_print(sh, "  input          - Input without pull resistor");
+        shell_print(sh, "  input_pullup   - Input with pull-up");
+        shell_print(sh, "  input_pulldown - Input with pull-down");
+        shell_print(sh, "  output         - Output (init low)");
+        shell_print(sh, "  output_high    - Output (init high)");
+        return -EINVAL;
+    }
+
+    uint32_t pin = strtoul(argv[1], NULL, 10);
+    uint32_t flags = 0;
+
+    if (strcmp(argv[2], "input") == 0)
+    {
+        flags = AKIRA_GPIO_INPUT;
+    }
+    else if (strcmp(argv[2], "input_pullup") == 0)
+    {
+        flags = AKIRA_GPIO_INPUT | AKIRA_GPIO_PULL_UP;
+    }
+    else if (strcmp(argv[2], "input_pulldown") == 0)
+    {
+        flags = AKIRA_GPIO_INPUT | AKIRA_GPIO_PULL_DOWN;
+    }
+    else if (strcmp(argv[2], "output") == 0)
+    {
+        flags = AKIRA_GPIO_OUTPUT | AKIRA_GPIO_OUTPUT_INIT_LOW;
+    }
+    else if (strcmp(argv[2], "output_high") == 0)
+    {
+        flags = AKIRA_GPIO_OUTPUT | AKIRA_GPIO_OUTPUT_INIT_HIGH;
+    }
+    else
+    {
+        shell_error(sh, "Unknown mode: %s", argv[2]);
+        return -EINVAL;
+    }
+
+    int ret = akira_gpio_configure(pin, flags);
+    if (ret < 0)
+    {
+        shell_error(sh, "Failed to configure GPIO %u: error %d", pin, ret);
+        return ret;
+    }
+
+    shell_print(sh, "GPIO %u configured as %s", pin, argv[2]);
+    return 0;
+}
+#endif /* CONFIG_GPIO */
 
 static int cmd_stress_test(const struct shell *sh, size_t argc, char **argv)
 {
@@ -1152,7 +1171,7 @@ static int cmd_reboot(const struct shell *sh, size_t argc, char **argv)
     }
 
     LOG_WRN("System reboot requested via shell");
-    sys_reboot(SYS_REBOOT_WARM);
+    sys_reboot(SYS_REBOOT_COLD);
     return 0;
 }
 
@@ -1172,8 +1191,8 @@ static int cmd_shell_stats(const struct shell *sh, size_t argc, char **argv)
                 k_uptime_get() - shell_state.last_button_read);
     shell_print(sh, "Last stats update: %llu ms ago",
                 k_uptime_get() - shell_state.last_stats_update);
-    shell_print(sh, "Button cache: 0x%08x",
-                atomic_get(&shell_state.button_cache));
+    shell_print(sh, "Button cache: 0x%08lx",
+                (unsigned long)atomic_get(&shell_state.button_cache));
 
     /* Memory usage estimation */
     size_t memory_used = sizeof(shell_state);
@@ -1230,32 +1249,6 @@ static int cmd_benchmark(const struct shell *sh, size_t argc, char **argv)
 }
 
 #if defined(CONFIG_BT) && defined(CONFIG_AKIRA_BT_HID)
-/* Bluetooth shell command handler - requires AKIRA_BT_HID */
-
-static int cmd_ble_shell(const struct shell *shell, size_t argc, char **argv)
-{
-    if (argc < 2)
-    {
-        shell_print(shell, "Usage: ble_shell <command>");
-        return -EINVAL;
-    }
-    // Concatenate command arguments
-    char cmd_buf[128] = {0};
-    for (size_t i = 1; i < argc; ++i)
-    {
-        strcat(cmd_buf, argv[i]);
-        if (i < argc - 1)
-            strcat(cmd_buf, " ");
-    }
-    bluetooth_manager_receive_shell_command(cmd_buf); /* Defined in bt_manager.c */
-    shell_print(shell, "Sent shell command to phone via BLE: %s", cmd_buf);
-    return 0;
-}
-
-SHELL_CMD_REGISTER(ble_shell, NULL, "Send shell command to phone via BLE", cmd_ble_shell);
-#endif
-
-#if defined(CONFIG_BT)
 /* ===== Bluetooth commands ===== */
 static int cmd_bt_info(const struct shell *sh, size_t argc, char **argv)
 {
@@ -1431,7 +1424,43 @@ SHELL_STATIC_SUBCMD_SET_CREATE(bt_cmds,
 SHELL_CMD_REGISTER(bt, &bt_cmds, "Bluetooth commands", NULL);
 #endif /* CONFIG_BT */
 
-#ifdef CONFIG_NETWORKING
+#ifdef CONFIG_WIFI
+/* Scan-shell statics — set before issuing the scan request */
+static K_SEM_DEFINE(scan_done_sem, 0, 1);
+static struct net_mgmt_event_callback scan_shell_cb;
+static const struct shell *scan_sh_ctx;
+static int scan_result_count;
+
+static void wifi_scan_shell_handler(struct net_mgmt_event_callback *cb,
+                                    uint32_t event, struct net_if *iface)
+{
+    ARG_UNUSED(iface);
+
+    if (event == NET_EVENT_WIFI_SCAN_RESULT) {
+        const struct wifi_scan_result *entry =
+            (const struct wifi_scan_result *)cb->info;
+        if (!entry || !scan_sh_ctx) {
+            return;
+        }
+
+        const char *sec;
+        switch (entry->security) {
+        case WIFI_SECURITY_TYPE_NONE:    sec = "Open";     break;
+        case WIFI_SECURITY_TYPE_WPA_PSK: sec = "WPA-PSK";  break;
+        case WIFI_SECURITY_TYPE_PSK:     sec = "WPA2-PSK"; break;
+        case WIFI_SECURITY_TYPE_SAE:     sec = "WPA3-SAE"; break;
+        default:                         sec = "Unknown";   break;
+        }
+
+        shell_print(scan_sh_ctx, "  %-32.*s  CH %3d  %4d dBm  %s",
+                    entry->ssid_length, entry->ssid,
+                    entry->channel, entry->rssi, sec);
+        scan_result_count++;
+    } else if (event == NET_EVENT_WIFI_SCAN_DONE) {
+        k_sem_give(&scan_done_sem);
+    }
+}
+
 /* WiFi status command */
 static int cmd_wifi_status(const struct shell *sh, size_t argc, char **argv)
 {
@@ -1500,30 +1529,26 @@ static int cmd_wifi_connect(const struct shell *sh, size_t argc, char **argv)
     }
 
     /* Get settings */
-    extern const struct user_settings *user_settings_get(void);
-    const struct user_settings *settings = user_settings_get();
+    char ssid[MAX_VALUE_LEN];
+    char psk[MAX_VALUE_LEN];
 
-    if (!settings->wifi_enabled)
-    {
-        shell_print(sh, "WiFi is disabled. Enable with: settings wifi_enable 1");
+    if(!akira_settings_get(AKIRA_SETTINGS_WIFI_SSID_KEY, ssid, MAX_VALUE_LEN) && !akira_settings_get(AKIRA_SETTINGS_WIFI_PSK_KEY, psk, MAX_VALUE_LEN)){
+        LOG_INF("Loaded ssid and psk succesfully fron NVS succesfully");
+    }
+    else{
+        LOG_INF("Failed to load ssid and psk fron NVS");
         return -EINVAL;
     }
 
-    if (strlen(settings->wifi_ssid) == 0)
-    {
-        shell_print(sh, "No WiFi SSID configured. Set with: settings set_wifi <ssid> <password>");
-        return -EINVAL;
-    }
-
-    shell_print(sh, "Connecting to WiFi: %s", settings->wifi_ssid);
+    shell_print(sh, "Connecting to WiFi: %s", ssid);
 
     struct wifi_connect_req_params wifi_params = {
-        .ssid = (uint8_t *)settings->wifi_ssid,
-        .ssid_length = strlen(settings->wifi_ssid),
-        .psk = (uint8_t *)settings->wifi_passcode,
-        .psk_length = strlen(settings->wifi_passcode),
+        .ssid = (uint8_t *)ssid,
+        .ssid_length = strlen(ssid),
+        .psk = (uint8_t *)psk,
+        .psk_length = strlen(psk),
         .channel = WIFI_CHANNEL_ANY,
-        .security = strlen(settings->wifi_passcode) > 0 ? WIFI_SECURITY_TYPE_PSK : WIFI_SECURITY_TYPE_NONE,
+        .security = strlen(psk) > 0 ? WIFI_SECURITY_TYPE_PSK : WIFI_SECURITY_TYPE_NONE,
         .mfp = WIFI_MFP_OPTIONAL,
     };
 
@@ -1545,126 +1570,77 @@ static int cmd_wifi_scan(const struct shell *sh, size_t argc, char **argv)
     ARG_UNUSED(argv);
 
     struct net_if *iface = net_if_get_default();
-    if (!iface)
-    {
+    if (!iface) {
         shell_print(sh, "No network interface available");
         return -ENODEV;
     }
 
-    shell_print(sh, "Starting WiFi scan...");
+    /* Set up per-scan state */
+    scan_sh_ctx = sh;
+    scan_result_count = 0;
+    k_sem_reset(&scan_done_sem);
+
+    net_mgmt_init_event_callback(&scan_shell_cb, wifi_scan_shell_handler,
+                                 NET_EVENT_WIFI_SCAN_RESULT |
+                                 NET_EVENT_WIFI_SCAN_DONE);
+    net_mgmt_add_event_callback(&scan_shell_cb);
+
+    shell_print(sh, "\n  %-32s  %-5s  %-9s  %s", "SSID", "CH", "RSSI", "Security");
+    shell_print(sh, "  %-32s  %-5s  %-9s  %s",
+                "--------------------------------", "-----", "---------", "--------");
 
     int ret = net_mgmt(NET_REQUEST_WIFI_SCAN, iface, NULL, 0);
-    if (ret)
-    {
+    if (ret) {
+        net_mgmt_del_event_callback(&scan_shell_cb);
+        scan_sh_ctx = NULL;
         shell_print(sh, "WiFi scan failed: %d", ret);
         return ret;
     }
 
-    shell_print(sh, "Scan started. Results will appear in the logs.");
+    /* Block until done or 5 s timeout */
+    ret = k_sem_take(&scan_done_sem, K_SECONDS(5));
+    net_mgmt_del_event_callback(&scan_shell_cb);
+    scan_sh_ctx = NULL;
+
+    if (ret == -EAGAIN) {
+        shell_print(sh, "\nScan timed out (%d network(s) found so far)", scan_result_count);
+        return -ETIMEDOUT;
+    }
+
+    shell_print(sh, "\nFound %d network(s)", scan_result_count);
     return 0;
 }
-
-/* Web server status command */
-static int cmd_web_status(const struct shell *sh, size_t argc, char **argv)
-{
-    ARG_UNUSED(argc);
-    ARG_UNUSED(argv);
-
-    enum web_server_state state = web_server_get_state();
-    const char *state_str;
-
-    switch (state)
-    {
-    case WEB_SERVER_STOPPED:
-        state_str = "Stopped";
-        break;
-    case WEB_SERVER_STARTING:
-        state_str = "Starting";
-        break;
-    case WEB_SERVER_RUNNING:
-        state_str = "Running";
-        break;
-    case WEB_SERVER_ERROR:
-        state_str = "Error";
-        break;
-    default:
-        state_str = "Unknown";
-    }
-
-    shell_print(sh, "\n=== Web Server Status ===");
-    shell_print(sh, "State: %s", state_str);
-
-    /* Get IP address to show URL */
-    struct net_if *iface = net_if_get_default();
-    if (iface)
-    {
-        char addr_str[NET_IPV4_ADDR_LEN];
-        struct in_addr *addr = net_if_ipv4_get_global_addr(iface, NET_ADDR_PREFERRED);
-        if (addr)
-        {
-            net_addr_ntop(AF_INET, addr, addr_str, sizeof(addr_str));
-            shell_print(sh, "URL: http://%s:%d/", addr_str, HTTP_PORT);
-        }
-    }
-
-    return 0;
-}
-
-static int cmd_web_start(const struct shell *sh, size_t argc, char **argv)
-{
-    ARG_UNUSED(argc);
-    ARG_UNUSED(argv);
-
-    struct net_if *iface = net_if_get_default();
-    if (!iface)
-    {
-        shell_print(sh, "No network interface");
-        return -ENODEV;
-    }
-
-    char addr_str[NET_IPV4_ADDR_LEN];
-    struct in_addr *addr = net_if_ipv4_get_global_addr(iface, NET_ADDR_PREFERRED);
-    if (!addr)
-    {
-        shell_print(sh, "No IP address - connect to WiFi first");
-        return -ENOTCONN;
-    }
-
-    net_addr_ntop(AF_INET, addr, addr_str, sizeof(addr_str));
-    shell_print(sh, "Starting web server at http://%s:%d/", addr_str, HTTP_PORT);
-
-    web_server_notify_network_status(true, addr_str);
-
-    return 0;
-}
-#endif /* CONFIG_NETWORKING */
+#endif /* CONFIG_WIFI */
 
 /* RAM Storage Shell Commands */
 static int cmd_ram_ls(const struct shell *sh, size_t argc, char **argv)
 {
     ram_file_info_t files[16];
     int count = fs_manager_list_ram_files(files, 16);
-    
-    if (count < 0) {
+
+    if (count < 0)
+    {
         shell_error(sh, "Failed to list RAM files: %d", count);
         return count;
     }
-    
-    if (count == 0) {
+
+    if (count == 0)
+    {
         shell_print(sh, "No files in RAM storage");
         return 0;
     }
-    
+
     shell_print(sh, "\n=== RAM Storage ===");
     shell_print(sh, "%-40s %10s", "Path", "Size");
     shell_print(sh, "---------------------------------------- ----------");
-    
+
     size_t total = 0;
-    for (int i = 0; i < count; i++) {
+    for (int i = 0; i < count; i++)
+    {
         shell_print(sh, "%-40s %10zu", files[i].path, files[i].size);
         total += files[i].size;
     }
-    
+
     shell_print(sh, "---------------------------------------- ----------");
     shell_print(sh, "Total: %d files, %zu bytes", count, total);
     return 0;
@@ -1672,27 +1648,31 @@ static int cmd_ram_ls(const struct shell *sh, size_t argc, char **argv)
 
 static int cmd_ram_cat(const struct shell *sh, size_t argc, char **argv)
 {
-    if (argc < 2) {
+    if (argc < 2)
+    {
         shell_error(sh, "Usage: ram cat <path>");
         return -EINVAL;
     }
-    
+
     uint8_t buffer[256];
     ssize_t size = fs_manager_read_file(argv[1], buffer, sizeof(buffer) - 1);
-    
-    if (size < 0) {
+
+    if (size < 0)
+    {
         shell_error(sh, "Failed to read file: %zd", size);
         return size;
     }
-    
+
     /* Print as hex dump for binary files */
     shell_print(sh, "File: %s (%zd bytes)", argv[1], size);
-    for (int i = 0; i < size; i += 16) {
+    for (int i = 0; i < size; i += 16)
+    {
         char hex[50] = {0};
         char ascii[18] = {0};
         int len = 0;
-        
-        for (int j = 0; j < 16 && (i + j) < size; j++) {
+
+        for (int j = 0; j < 16 && (i + j) < size; j++)
+        {
             len += snprintf(hex + len, sizeof(hex) - len, "%02x ", buffer[i + j]);
             ascii[j] = (buffer[i + j] >= 32 && buffer[i + j] < 127) ? buffer[i + j] : '.';
         }
@@ -1701,6 +1681,7 @@ static int cmd_ram_cat(const struct shell *sh, size_t argc, char **argv)
     return 0;
 }
 
+#ifndef CONFIG_ARCH_POSIX
 /**
  * @brief Hardware test command for Akira-Micro
  * Tests buttons, SD card, and LED
@@ -1711,43 +1692,49 @@ static int cmd_hwtest(const struct shell *sh, size_t argc, char **argv)
     shell_print(sh, "  Akira-Micro Hardware Test");
     shell_print(sh, "===========================================\n");
 
-    const struct device *gpio_dev = DEVICE_DT_GET(DT_NODELABEL(gpio0));
-    if (!device_is_ready(gpio_dev)) {
-        shell_error(sh, "GPIO device not ready");
-        return -ENODEV;
+    const struct device *gpio_dev = DEVICE_DT_GET_OR_NULL(DT_NODELABEL(gpio0));
+    if (!gpio_dev || !device_is_ready(gpio_dev))
+    {
+        shell_warn(sh, "GPIO0 not present or not ready - skipping GPIO tests");
     }
+    else
+    {
+        /* Test 1: LED Blink */
+        shell_print(sh, "Test 1: Status LED (GPIO32)");
+        gpio_pin_configure(gpio_dev, 32, GPIO_OUTPUT_ACTIVE);
 
-    /* Test 1: LED Blink */
-    shell_print(sh, "Test 1: Status LED (GPIO32)");
-    gpio_pin_configure(gpio_dev, 32, GPIO_OUTPUT_ACTIVE);
-    
-    for (int i = 0; i < 5; i++) {
-        gpio_pin_set(gpio_dev, 32, 1);
-        k_msleep(200);
-        gpio_pin_set(gpio_dev, 32, 0);
-        k_msleep(200);
-    }
-    shell_print(sh, "  ✓ LED test complete\n");
+        for (int i = 0; i < 5; i++)
+        {
+            gpio_pin_set(gpio_dev, 32, 1);
+            k_msleep(200);
+            gpio_pin_set(gpio_dev, 32, 0);
+            k_msleep(200);
+        }
+        shell_print(sh, "  ✓ LED test complete\n");
 
-    /* Test 2: Button States */
-    shell_print(sh, "Test 2: Button States");
-    const int button_pins[] = {35, 34, 39, 36, 14, 13};
-    const char *button_names[] = {"KEY1", "KEY2", "KEY3", "KEY4", "KEY5", "KEY6"};
-    
-    for (int i = 0; i < 6; i++) {
-        gpio_pin_configure(gpio_dev, button_pins[i], GPIO_INPUT | GPIO_PULL_UP);
+        /* Test 2: Button States */
+        shell_print(sh, "Test 2: Button States");
+        const int button_pins[] = {35, 34, 39, 36, 14, 13};
+        const char *button_names[] = {"KEY1", "KEY2", "KEY3", "KEY4", "KEY5", "KEY6"};
+
+        for (int i = 0; i < 6; i++)
+        {
+            gpio_pin_configure(gpio_dev, button_pins[i], GPIO_INPUT | GPIO_PULL_UP);
+        }
+
+        shell_print(sh, "  Reading button states (press buttons to test):");
+        for (int i = 0; i < 6; i++)
+        {
+            int val = gpio_pin_get(gpio_dev, button_pins[i]);
+            shell_print(sh, "    %s (GPIO%d): %s", button_names[i], button_pins[i],
+                        val ? "Released" : "PRESSED");
+        }
+        shell_print(sh, "  ✓ Button test complete\n");
     }
-    
-    shell_print(sh, "  Reading button states (press buttons to test):");
-    for (int i = 0; i < 6; i++) {
-        int val = gpio_pin_get(gpio_dev, button_pins[i]);
-        shell_print(sh, "    %s (GPIO%d): %s", button_names[i], button_pins[i], 
-                    val ? "Released" : "PRESSED");
-    }
-    shell_print(sh, "  ✓ Button test complete\n");
 
     /* Test 3: SD Card */
     shell_print(sh, "Test 3: SD Card");
+#if defined(CONFIG_FAT_FILESYSTEM_ELM)
     FATFS fat_fs;
     FIL file;
     FRESULT res;
@@ -1756,33 +1743,55 @@ static int cmd_hwtest(const struct shell *sh, size_t argc, char **argv)
     const char *test_data = "Akira-Micro Hardware Test\n";
 
     res = f_mount(&fat_fs, "/SD:", 1);
-    if (res != FR_OK) {
+    if (res != FR_OK)
+    {
         shell_error(sh, "  ✗ Failed to mount SD card: %d", res);
-    } else {
+    }
+    else
+    {
         shell_print(sh, "  ✓ SD card mounted");
 
         res = f_open(&file, test_file, FA_CREATE_ALWAYS | FA_WRITE);
-        if (res != FR_OK) {
+        if (res != FR_OK)
+        {
             shell_error(sh, "  ✗ Failed to create test file: %d", res);
-        } else {
+        }
+        else
+        {
             res = f_write(&file, test_data, strlen(test_data), &bytes_written);
             f_close(&file);
-            
-            if (res == FR_OK) {
+
+            if (res == FR_OK)
+            {
                 shell_print(sh, "  ✓ Wrote %u bytes to %s", bytes_written, test_file);
-            } else {
+            }
+            else
+            {
                 shell_error(sh, "  ✗ Write failed: %d", res);
             }
         }
         f_unmount("/SD:");
     }
+#else
+    shell_print(sh, "  - SD card test skipped (FAT filesystem disabled)");
+#endif
 
     shell_print(sh, "\n===========================================");
     shell_print(sh, "Hardware test complete!");
     shell_print(sh, "===========================================");
-    
+
     return 0;
 }
+#else
+/**
+ * @brief Hardware test command stub for native_sim (no GPIO devices)
+ */
+static int cmd_hwtest(const struct shell *sh, size_t argc, char **argv)
+{
+    shell_print(sh, "Hardware test not available on this platform");
+    return -ENOSYS;
+}
+#endif
 
 SHELL_STATIC_SUBCMD_SET_CREATE(ram_cmds,
                                SHELL_CMD(ls, NULL, "List files in RAM storage", cmd_ram_ls),
@@ -1791,12 +1800,10 @@ SHELL_STATIC_SUBCMD_SET_CREATE(ram_cmds,
 
 SHELL_CMD_REGISTER(ram, &ram_cmds, "RAM storage commands", NULL);
 
-#ifdef CONFIG_NETWORKING
+#ifdef CONFIG_WIFI
 SHELL_CMD_REGISTER(wifi_status, NULL, "Show WiFi connection status", cmd_wifi_status);
 SHELL_CMD_REGISTER(wifi_connect, NULL, "Connect to configured WiFi network", cmd_wifi_connect);
 SHELL_CMD_REGISTER(wifi_scan, NULL, "Scan for WiFi networks", cmd_wifi_scan);
-SHELL_CMD_REGISTER(web_status, NULL, "Show web server status", cmd_web_status);
-SHELL_CMD_REGISTER(web_start, NULL, "Start web server", cmd_web_start);
 #endif
 
 #ifdef CONFIG_AKIRA_APP_MANAGER
@@ -1808,6 +1815,7 @@ SHELL_STATIC_SUBCMD_SET_CREATE(app_cmds,
                                SHELL_CMD(stop, NULL, "Stop app <name>", cmd_app_stop),
                                SHELL_CMD(restart, NULL, "Restart app <name>", cmd_app_restart),
                                SHELL_CMD(uninstall, NULL, "Uninstall app <name>", cmd_app_uninstall),
+                               SHELL_CMD(install, NULL, "Install app from SD/USB: <name> <sd|usb>", cmd_app_install),
                                SHELL_CMD(scan, NULL, "Scan for apps in SD/USB", cmd_app_scan),
                                SHELL_SUBCMD_SET_END);
 #endif /* CONFIG_AKIRA_APP_MANAGER */
@@ -1819,10 +1827,12 @@ SHELL_STATIC_SUBCMD_SET_CREATE(system_cmds,
                                SHELL_CMD(reboot, NULL, "Reboot system [delay_seconds]", cmd_reboot),
                                SHELL_SUBCMD_SET_END);
 
-SHELL_STATIC_SUBCMD_SET_CREATE(gaming_cmds,
-                               SHELL_CMD(buttons, NULL, "Read gaming button states", cmd_buttons_read),
-                               SHELL_CMD(display, NULL, "Control display settings", cmd_display_control),
+#ifdef CONFIG_GPIO
+SHELL_STATIC_SUBCMD_SET_CREATE(gpio_cmds,
+                               SHELL_CMD(read, NULL, "Read GPIO pin state", cmd_gpio_read),
+                               SHELL_CMD(configure, NULL, "Configure GPIO pin", cmd_gpio_configure),
                                SHELL_SUBCMD_SET_END);
+#endif /* CONFIG_GPIO */
 
 SHELL_STATIC_SUBCMD_SET_CREATE(debug_cmds,
                                SHELL_CMD(memdump, NULL, "Dump memory contents", cmd_memory_dump),
@@ -1835,8 +1845,313 @@ SHELL_STATIC_SUBCMD_SET_CREATE(debug_cmds,
                                SHELL_SUBCMD_SET_END);
 
 SHELL_CMD_REGISTER(sys, &system_cmds, "System management commands", NULL);
-SHELL_CMD_REGISTER(game, &gaming_cmds, "Gaming-specific commands", NULL);
+#ifdef CONFIG_GPIO
+SHELL_CMD_REGISTER(gpio, &gpio_cmds, "GPIO control commands", NULL);
+#endif
 SHELL_CMD_REGISTER(debug, &debug_cmds, "Debug and diagnostic commands", NULL);
 #ifdef CONFIG_AKIRA_APP_MANAGER
 SHELL_CMD_REGISTER(app, &app_cmds, "App management commands", NULL);
+#endif
+
+/* ===== Radio Manager Commands ===== */
+#if defined(CONFIG_AKIRA_RADIO_MANAGER)
+static int cmd_radio_info(const struct shell *sh, size_t argc, char **argv)
+{
+    ARG_UNUSED(argc);
+    ARG_UNUSED(argv);
+    
+    radio_handle_t *radios[8];
+    int count = radio_manager_get_all(RADIO_TYPE_NONE, radios, 8);
+    
+    if (count < 0) {
+        shell_error(sh, "Failed to get radios: %d", count);
+        return count;
+    }
+    
+    shell_print(sh, "\n=== Available Radios ===");
+    for (int i = 0; i < count; i++) {
+        shell_print(sh, "%d: %s (%s) - State: %s", i, 
+                   radios[i]->name,
+                   radio_type_to_string(radios[i]->type),
+                   radio_state_to_string(radios[i]->state));
+        shell_print(sh, "   Capabilities: 0x%08x", radios[i]->capabilities);
+    }
+    shell_print(sh, "Total: %d radios", count);
+    return 0;
+}
+
+static int cmd_radio_stats(const struct shell *sh, size_t argc, char **argv)
+{
+    if (argc < 2) {
+        shell_error(sh, "Usage: radio stats <wifi|ble|802154>");
+        return -EINVAL;
+    }
+    
+    radio_type_t type;
+    if (strcmp(argv[1], "wifi") == 0) {
+        type = RADIO_TYPE_WIFI;
+    } else if (strcmp(argv[1], "ble") == 0) {
+        type = RADIO_TYPE_BLE;
+    } else if (strcmp(argv[1], "802154") == 0) {
+        type = RADIO_TYPE_802154;
+    } else {
+        shell_error(sh, "Unknown radio type: %s", argv[1]);
+        return -EINVAL;
+    }
+    
+    radio_handle_t *radio = radio_manager_get(type);
+    if (!radio) {
+        shell_error(sh, "Radio %s not available", argv[1]);
+        return -ENODEV;
+    }
+    
+    radio_stats_t stats;
+    int ret = radio_get_stats(radio, &stats);
+    if (ret) {
+        shell_error(sh, "Failed to get stats: %d", ret);
+        return ret;
+    }
+    
+    shell_print(sh, "\n=== %s Radio Statistics ===", radio->name);
+    shell_print(sh, "TX Packets: %llu", stats.tx_packets);
+    shell_print(sh, "RX Packets: %llu", stats.rx_packets);
+    shell_print(sh, "TX Bytes: %llu", stats.tx_bytes);
+    shell_print(sh, "RX Bytes: %llu", stats.rx_bytes);
+    shell_print(sh, "RSSI: %d dBm", stats.rssi);
+    shell_print(sh, "LQI: %u", stats.lqi);
+    return 0;
+}
+
+SHELL_STATIC_SUBCMD_SET_CREATE(radio_cmds,
+    SHELL_CMD(info, NULL, "Show available radios", cmd_radio_info),
+    SHELL_CMD(stats, NULL, "Show radio statistics <wifi|ble|802154>", cmd_radio_stats),
+    SHELL_SUBCMD_SET_END);
+SHELL_CMD_REGISTER(radio, &radio_cmds, "Radio abstraction layer commands", NULL);
+#endif
+
+/* ===== Matter Commands ===== */
+#if defined(CONFIG_AKIRA_MATTER)
+static int cmd_matter_info(const struct shell *sh, size_t argc, char **argv)
+{
+    ARG_UNUSED(argc);
+    ARG_UNUSED(argv);
+    
+    matter_stats_t stats;
+    int ret = matter_get_stats(&stats);
+    if (ret) {
+        shell_error(sh, "Failed to get Matter stats: %d", ret);
+        return ret;
+    }
+    
+    shell_print(sh, "\n=== Matter Status ===");
+    shell_print(sh, "State: %d", stats.state);
+    shell_print(sh, "Uptime: %llu sec", stats.uptime_sec);
+    shell_print(sh, "Messages TX: %u  RX: %u", stats.messages_sent, stats.messages_received);
+    shell_print(sh, "Commissioning: %u attempts, %u success", 
+               stats.commissioning_attempts, stats.commissioning_success);
+    return 0;
+}
+
+static int cmd_matter_commission(const struct shell *sh, size_t argc, char **argv)
+{
+    uint32_t timeout = 300;  /* 5 minutes default */
+    if (argc > 1) {
+        timeout = strtoul(argv[1], NULL, 10);
+    }
+    
+    int ret = matter_start_commissioning(timeout);
+    if (ret) {
+        shell_error(sh, "Failed to start commissioning: %d", ret);
+        return ret;
+    }
+    
+    shell_print(sh, "Matter commissioning started (timeout: %u sec)", timeout);
+    
+    /* Show QR code and manual code */
+    char qr_code[128];
+    char manual_code[16];
+    
+    if (matter_get_qr_code(qr_code, sizeof(qr_code)) == 0) {
+        shell_print(sh, "\nQR Code: %s", qr_code);
+    }
+    
+    if (matter_get_manual_code(manual_code, sizeof(manual_code)) == 0) {
+        shell_print(sh, "Manual Code: %s", manual_code);
+    }
+    
+    return 0;
+}
+
+static int cmd_matter_reset(const struct shell *sh, size_t argc, char **argv)
+{
+    ARG_UNUSED(argc);
+    ARG_UNUSED(argv);
+    
+    shell_print(sh, "Performing Matter factory reset...");
+    int ret = matter_factory_reset();
+    if (ret) {
+        shell_error(sh, "Factory reset failed: %d", ret);
+        return ret;
+    }
+    
+    shell_print(sh, "Matter factory reset complete");
+    return 0;
+}
+
+SHELL_STATIC_SUBCMD_SET_CREATE(matter_cmds,
+    SHELL_CMD(info, NULL, "Show Matter status", cmd_matter_info),
+    SHELL_CMD(commission, NULL, "Start commissioning [timeout_sec]", cmd_matter_commission),
+    SHELL_CMD(reset, NULL, "Factory reset", cmd_matter_reset),
+    SHELL_SUBCMD_SET_END);
+SHELL_CMD_REGISTER(matter, &matter_cmds, "Matter protocol commands", NULL);
+#endif
+
+/* ===== Thread Commands ===== */
+#if defined(CONFIG_AKIRA_THREAD)
+static int cmd_thread_info(const struct shell *sh, size_t argc, char **argv)
+{
+    ARG_UNUSED(argc);
+    ARG_UNUSED(argv);
+    
+    thread_stats_t stats;
+    int ret = thread_get_stats(&stats);
+    if (ret) {
+        shell_error(sh, "Failed to get Thread stats: %d", ret);
+        return ret;
+    }
+    
+    shell_print(sh, "\n=== Thread Status ===");
+    shell_print(sh, "Role: %d  RLOC16: 0x%04x", stats.role, stats.rloc16);
+    shell_print(sh, "Leader ID: %u  Partition: %u", stats.leader_router_id, stats.partition_id);
+    shell_print(sh, "Children: %u  Neighbors: %u", stats.child_count, stats.neighbor_count);
+    shell_print(sh, "RX: %llu  TX: %llu  RSSI: %d dBm", 
+               stats.packets_received, stats.packets_sent, stats.rssi);
+    return 0;
+}
+
+static int cmd_thread_start(const struct shell *sh, size_t argc, char **argv)
+{
+    ARG_UNUSED(argc);
+    ARG_UNUSED(argv);
+    
+    int ret = thread_start();
+    if (ret) {
+        shell_error(sh, "Failed to start Thread: %d", ret);
+        return ret;
+    }
+    
+    shell_print(sh, "Thread network started");
+    return 0;
+}
+
+static int cmd_thread_stop(const struct shell *sh, size_t argc, char **argv)
+{
+    ARG_UNUSED(argc);
+    ARG_UNUSED(argv);
+    
+    int ret = thread_stop();
+    if (ret) {
+        shell_error(sh, "Failed to stop Thread: %d", ret);
+        return ret;
+    }
+    
+    shell_print(sh, "Thread network stopped");
+    return 0;
+}
+
+SHELL_STATIC_SUBCMD_SET_CREATE(thread_cmds,
+    SHELL_CMD(info, NULL, "Show Thread status", cmd_thread_info),
+    SHELL_CMD(start, NULL, "Start Thread network", cmd_thread_start),
+    SHELL_CMD(stop, NULL, "Stop Thread network", cmd_thread_stop),
+    SHELL_SUBCMD_SET_END);
+SHELL_CMD_REGISTER(thread, &thread_cmds, "Thread protocol commands", NULL);
+#endif
+
+/* ===== AkiraMesh Commands ===== */
+#if defined(CONFIG_AKIRA_MESH)
+static int cmd_mesh_info(const struct shell *sh, size_t argc, char **argv)
+{
+    ARG_UNUSED(argc);
+    ARG_UNUSED(argv);
+    
+    akira_mesh_stats_t stats;
+    int ret = akira_mesh_get_stats(&stats);
+    if (ret) {
+        shell_error(sh, "Failed to get mesh stats: %d", ret);
+        return ret;
+    }
+    
+    shell_print(sh, "\n=== AkiraMesh Status ===");
+    shell_print(sh, "Nodes discovered: %u", stats.nodes_discovered);
+    shell_print(sh, "Messages: %u sent, %u received, %u forwarded",
+               stats.messages_sent, stats.messages_received, stats.messages_forwarded);
+    shell_print(sh, "Active routes: %u", stats.routes_active);
+    shell_print(sh, "Apps distributed: %u", stats.apps_distributed);
+    return 0;
+}
+
+static int cmd_mesh_nodes(const struct shell *sh, size_t argc, char **argv)
+{
+    ARG_UNUSED(argc);
+    ARG_UNUSED(argv);
+    
+    akira_mesh_node_info_t nodes[AKIRA_MESH_MAX_NODES];
+    int count = akira_mesh_get_nodes(nodes, AKIRA_MESH_MAX_NODES);
+    
+    if (count < 0) {
+        shell_error(sh, "Failed to get nodes: %d", count);
+        return count;
+    }
+    
+    shell_print(sh, "\n=== Mesh Nodes ===");
+    shell_print(sh, "%-32s %-8s %-8s %-8s", "Name", "Hops", "RSSI", "Last Seen");
+    shell_print(sh, "----------------------------------------");
+    
+    for (int i = 0; i < count; i++) {
+        uint32_t age_sec = (k_uptime_get_32() - nodes[i].last_seen) / 1000;
+        shell_print(sh, "%-32s %-8u %-8d %us ago",
+                   nodes[i].name, nodes[i].hop_count, nodes[i].rssi, age_sec);
+    }
+    
+    shell_print(sh, "Total: %d nodes", count);
+    return 0;
+}
+
+static int cmd_mesh_start(const struct shell *sh, size_t argc, char **argv)
+{
+    ARG_UNUSED(argc);
+    ARG_UNUSED(argv);
+    
+    int ret = akira_mesh_start();
+    if (ret) {
+        shell_error(sh, "Failed to start mesh: %d", ret);
+        return ret;
+    }
+    
+    shell_print(sh, "AkiraMesh started");
+    return 0;
+}
+
+static int cmd_mesh_stop(const struct shell *sh, size_t argc, char **argv)
+{
+    ARG_UNUSED(argc);
+    ARG_UNUSED(argv);
+    
+    int ret = akira_mesh_stop();
+    if (ret) {
+        shell_error(sh, "Failed to stop mesh: %d", ret);
+        return ret;
+    }
+    
+    shell_print(sh, "AkiraMesh stopped");
+    return 0;
+}
+
+SHELL_STATIC_SUBCMD_SET_CREATE(mesh_cmds,
+    SHELL_CMD(info, NULL, "Show mesh statistics", cmd_mesh_info),
+    SHELL_CMD(nodes, NULL, "List discovered nodes", cmd_mesh_nodes),
+    SHELL_CMD(start, NULL, "Start mesh networking", cmd_mesh_start),
+    SHELL_CMD(stop, NULL, "Stop mesh networking", cmd_mesh_stop),
+    SHELL_SUBCMD_SET_END);
+SHELL_CMD_REGISTER(mesh, &mesh_cmds, "AkiraMesh commands", NULL);
 #endif

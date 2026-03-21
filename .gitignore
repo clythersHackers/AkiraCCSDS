@@ -79,6 +79,7 @@ __pycache__/
 akira-env/
 venv/
 env/
+bin/
 
 # IDEs
 .vscode/
@@ -106,3 +107,7 @@ build_nrf53/
 
 # WebAssembly apps 
 *.wasm
+
+#python env
+.venv/
+modules/wasm-micro-runtime
