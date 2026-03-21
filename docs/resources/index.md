@@ -12,6 +12,7 @@ Additional resources for AkiraOS developers.
 
 ## Documentation
 
+- [Release Notes](release-notes.md) - Version history and changelog
 - [FAQ](faq.md) - Frequently asked questions
 - [Glossary](glossary.md) - Technical terminology
 - [Performance](performance.md) - Benchmarks and optimization
