@@ -1,328 +1,266 @@
-# AkiraOS
-
 <div align="center">
 
 <img src="assets/logo.png" alt="AkiraOS Logo" width="300"/>
 
-**High-Performance WebAssembly OS for Embedded Systems**
+# AkiraOS
 
-[![Version](https://img.shields.io/badge/version-1.4.9_Gl1tch-blue.svg)](VERSION)
-[![Zephyr](https://img.shields.io/badge/Zephyr-4.3.0-green.svg)](https://github.com/zephyrproject-rtos/zephyr)
-[![WAMR](https://img.shields.io/badge/WAMR-2.0-purple.svg)](https://github.com/bytecodealliance/wasm-micro-runtime)
-[![License](https://img.shields.io/badge/license-GPL%20v3-blue.svg)](LICENSE)
+**WebAssembly Runtime for Microcontrollers**
 
-*A production-ready embedded OS combining Zephyr RTOS with WebAssembly sandboxed execution.*
+Every app is a sandboxed `.wasm` module. Deploy over-the-air. No firmware flash required.
 
-[Quick Start](#quick-start) • [Architecture](#architecture) • [Features](#features) • [Documentation](#documentation) • [Contributing](#contributing)
+[![Version](https://img.shields.io/badge/version-1.4.9%20"Gl1tch"-7f5af0?style=flat-square)](https://github.com/ArturR0k3r/AkiraOS/releases)
+[![Zephyr](https://img.shields.io/badge/Zephyr-4.3.0-3b82f6?style=flat-square)](https://zephyrproject.org)
+[![WAMR](https://img.shields.io/badge/WAMR-2.x-22c55e?style=flat-square)](https://github.com/bytecodealliance/wasm-micro-runtime)
+[![License](https://img.shields.io/badge/license-GPL--3.0-ef4444?style=flat-square)](LICENSE)
+[![OSHWA](https://img.shields.io/badge/OSHWA-MD000003-f59e0b?style=flat-square)](https://certification.oshwa.org/md000003.html)
+[![Stars](https://img.shields.io/github/stars/ArturR0k3r/AkiraOS?style=flat-square&color=7f5af0)](https://github.com/ArturR0k3r/AkiraOS/stargazers)
+
+[**Quick Start**](#quick-start) · [**Architecture**](#architecture) · [**AkiraSDK**](#wasm-app-development) · [**Hardware**](#supported-hardware) · [**Docs**](https://docs.akiraos.dev)
 
 </div>
 
 ---
 
-## Overview
+## What is AkiraOS?
 
-AkiraOS is an embedded operating system designed for **secure, dynamic application execution** on resource-constrained devices. It leverages **WASM Micro Runtime (WAMR)** for sandboxed applications while maintaining real-time performance through **Zephyr RTOS**.
+AkiraOS is a Zephyr-based embedded OS that runs **sandboxed WebAssembly applications** on microcontrollers.
 
-### Core Principles
+The core idea: separate the OS from the application. The firmware stays stable. Apps are `.wasm` binaries — isolated, portable, and deployable over-the-air without touching the OS.
 
-1. **Zero-Trust Execution** – All user applications run in WebAssembly sandboxes with capability-based access control.
-2. **Direct-to-Hardware Performance** – Zero-copy data paths and direct callback dispatch eliminate unnecessary abstractions.
-3. **Modular Connectivity** – WiFi, Bluetooth, USB, and mesh networking with unified streaming API.
-4. **OTA-First Design** – Atomic firmware updates with rollback protection via MCUboot.
+```
+Your App (C/C++/Python)  →  compile  →  app.wasm  →  SecureDeploy  →  runs on device
+                                                              OS unchanged
+```
+
+**Why this matters:**
+- Update apps in the field without a firmware flash cycle
+- One binary runs on ESP32-S3, nRF5x, or STM32 — no recompile
+- Bad app crashes? Runtime catches it at the boundary. Device stays up.
+- Every app gets only the hardware access it explicitly requested
 
 ---
 
 ## Architecture
 
-AkiraOS uses a **layered modular architecture** with three primary subsystems:
-
-```mermaid
-graph TB
-    %% Styles
-    classDef app fill:#9B59B6,stroke:#fff,color:#fff
-    classDef runtime fill:#4A90E2,stroke:#fff,color:#fff
-    classDef connectivity fill:#E94B3C,stroke:#fff,color:#fff
-    classDef kernel fill:#50C878,stroke:#fff,color:#fff
-
-    subgraph User["User Space (WASM)"]
-        APP1[App 1]
-        APP2[App 2]
-        APP3[App N]
-    end
-
-    subgraph Runtime["Runtime Layer"]
-        WAMR[WAMR Engine]
-        LOADER[Stream Loader]
-        BRIDGE[Native Bridge]
-        SECURITY[Capability Guard]
-    end
-
-    subgraph Connectivity["Connectivity Layer"]
-        WIFI[WiFi/HTTP]
-        BLE[Bluetooth HID]
-        USB[USB Storage]
-        OTA[OTA Manager]
-    end
-
-    subgraph System["System Layer (Zephyr RTOS)"]
-        FS[File System]
-        NET[Network Stack]
-        DRIVERS[HAL Drivers]
-        PSRAM[PSRAM Allocator]
-    end
-
-    %% Connections
-    User --> Runtime
-    Runtime --> Connectivity
-    Runtime --> System
-    Connectivity --> System
-
-    class APP1,APP2,APP3 app
-    class WAMR,LOADER,BRIDGE,SECURITY runtime
-    class WIFI,BLE,USB,OTA connectivity
-    class FS,NET,DRIVERS,PSRAM kernel
+```
+┌─────────────────────────────────────────────────────┐
+│              USER SPACE — WASM Apps                 │
+│   [app1.wasm]   [app2.wasm]   [your_app.wasm]       │
+│   50KB–200KB per app · max 8 installed · 2 running  │
+└──────────────────────┬──────────────────────────────┘
+                       │ capability-checked calls
+┌──────────────────────▼──────────────────────────────┐
+│              AKIRAZ RUNTIME                         │
+│  App Manager · Capability Guard · Native Bridge     │
+│  UI Framework (32 widgets) · Shell · 18 API modules │
+│  WAMR: interpreter (1x) or AOT (10–50x perf)        │
+└──────────┬──────────────────────┬───────────────────┘
+           │                      │
+┌──────────▼──────────┐  ┌───────▼───────────────────┐
+│  CONNECTIVITY       │  │  ZEPHYR RTOS               │
+│  HTTP · OTA         │  │  Scheduler · Network Stack  │
+│  BLE · AkiraMesh    │  │  Drivers · LittleFS         │
+└─────────────────────┘  └────────────────────────────┘
 ```
 
-### Key Components
+**Capability Guard** — every native API call goes through an inline permission check (~60ns overhead). Apps declare required capabilities in a manifest. No capability = no access. Period.
 
-| Layer | Purpose | Technology |
-|-------|---------|------------|
-| **User Space** | Sandboxed applications | WebAssembly (WASI) |
-| **Runtime** | Execution engine & security | WAMR iWasm + AOT |
-| **Connectivity** | Data transport & OTA | WiFi, BLE, USB, HTTP |
-| **System** | Hardware abstraction | Zephyr RTOS 4.3.0 |
+```json
+{
+  "name": "my_sensor_app",
+  "capabilities": ["gpio.read", "display.write", "sensor.read"]
+}
+```
 
----
-
-## Features
-
-### Runtime Capabilities
-
-- **WebAssembly Execution** – WAMR with AOT compilation support
-- **Direct-Stream Loading** – Zero-copy WASM module loading from network/storage
-- **Capability-Based Security** – Fine-grained permission system for native APIs
-- **PSRAM Memory Management** – Efficient heap allocation for large applications
-- **Native API Bridge** – Direct function calls (< 50ns latency)
-
-### Connectivity Stack
-
-- **WiFi HTTP Server** – Multipart file upload, JSON API, OTA endpoints
-- **Bluetooth HID** – Keyboard/mouse/gamepad support
-- **USB Mass Storage** – Drag-and-drop firmware updates
-- **OTA Manager** – Atomic firmware updates with signature verification
-- **Zero-Copy Data Paths** – Direct callback dispatch to consumers
-
-### System Features
-
-- **Dual-Boot Support** – MCUboot with fallback recovery
-- **File System** – LittleFS on flash with wear leveling
-- **Sensor Framework** – Unified API for environmental sensors
-- **Power Management** – Deep sleep modes with wake-on-event
-- **Shell Interface** – Debug console with command-line tools
+Full architecture docs → [docs.akiraos.dev/architecture](https://docs.akiraos.dev/architecture)
 
 ---
 
 ## Quick Start
 
+> **No hardware? No problem.** AkiraOS runs on `native_sim` — test everything on your Linux host first.
+
 ### Prerequisites
 
-- **Linux/WSL2** (Ubuntu 20.04+)
-- **Python 3.8+**
-- **West**: `pip install west`
+- Linux or WSL2 (Ubuntu 20.04+)
+- Python 3.8+
+- `west` — `pip install west`
 
-### 1. Clone and Initialize
+### 1 — Clone
 
 ```bash
-# Create workspace
 mkdir akira-workspace && cd akira-workspace
-git clone --recursive https://github.com/ArturR0k3r/AkiraOS.git
+git clone --recurse-submodules https://github.com/ArturR0k3r/AkiraOS.git
 cd AkiraOS
-
-# Initialize Zephyr workspace
-west init -l .
-cd .. && west update
+west init -l . && cd .. && west update
 ```
 
-### 2. Install Zephyr SDK
+### 2 — Install Zephyr SDK
 
 ```bash
 cd ~
 wget https://github.com/zephyrproject-rtos/sdk-ng/releases/download/v0.17.4/zephyr-sdk-0.17.4_linux-x86_64.tar.xz
 tar xvf zephyr-sdk-0.17.4_linux-x86_64.tar.xz
-cd zephyr-sdk-0.17.4
-./setup.sh
+cd zephyr-sdk-0.17.4 && ./setup.sh
 ```
 
-### 3. Build and Flash
+### 3 — Build and run
 
 ```bash
 cd akira-workspace/AkiraOS
 
-# Test without hardware first (auto-runs on your host)
+# Run on your host — no hardware needed
 ./build.sh
 
-# Fetch ESP32 binary blobs, build for ESP32-S3, and flash
+# Build and flash to ESP32-S3
 cd .. && west blobs fetch hal_espressif && cd AkiraOS
 ./build.sh -b esp32s3_devkitm_esp32s3_procpu -r a
-
-# Monitor output
 west espmonitor
 ```
 
-**For detailed setup instructions, see [QUICKSTART.md](QUICKSTART.md).**
+Full setup guide → [QUICKSTART.md](QUICKSTART.md)
+
+---
+
+## WASM App Development
+
+Install the [WASI SDK](https://github.com/WebAssembly/wasi-sdk/releases), then:
+
+```bash
+# Build your first app
+cd AkiraSDK/wasm_apps/hello_world
+../../build_wasm_app.sh -o hello_world.wasm main.c
+
+# Deploy to a running device over WiFi — no reflash needed
+curl -X POST -F "file=@hello_world.wasm" http://<device-ip>/upload
+```
+
+**Example apps in `AkiraSDK/wasm_apps/`:**
+
+| App | Description |
+|-----|-------------|
+| `hello_world` | Minimal starter |
+| `sensor_demo` | Read hardware sensors |
+| `display_graphics` | Graphics rendering |
+| `gui_demo` | Full UI with 32 widget types |
+| `hid_keyboard_demo` | USB HID input |
+| `blink_led` | GPIO control |
+| `logic_analyzer` | Data capture |
+
+**Native API Modules (18 total):** BLE · Display · GPIO · HID · I2C · IPC · Lifecycle · Memory · Net · Power · PWM · RF · Sensor · Storage · Timer · UART · and more.
+
+Full API reference → [docs.akiraos.dev/api-reference](https://docs.akiraos.dev/api-reference)
 
 ---
 
 ## Supported Hardware
 
-| Platform | Status | Memory | Features |
-|----------|--------|--------|----------|
-| **ESP32-S3** | Primary | 512KB + 8MB PSRAM | WiFi, BLE, USB, Full OTA |
-| **ESP32** | Supported | 520KB RAM | WiFi, BLE, Limited PSRAM |
-| **ESP32-C3** | Supported | 400KB RAM | WiFi only by default (BLE disabled to save RAM) |
-| **Native Sim** | Development | Host memory | Fast testing without hardware |
-| **nRF54L15** | Experimental | 256KB RAM | Bluetooth LE, ARM Cortex-M33 |
-| **STM32** | Experimental | Varies | B-U585I-IOT02A, STEVAL-STWINBX1 |
+| Platform | Status | Architecture | Tier | Notes |
+|----------|--------|-------------|------|-------|
+| **AkiraConsole** | ✅ Supported | Xtensa LX7 | Tier 1 | ESP32-S3 · Custom HW |
+| ESP32 | ✅ Supported | Xtensa LX7 / RISC-V | Tier 1 | -S3 (LX7) · -H2 · -C6 (RISC-V) |
+| native\_sim | ✅ Supported | Host (x86\_64) | Tier 1 | Fast iteration, no hardware needed |
+| nRF54L15 | ✅ Supported | ARM Cortex-M33 | Tier 2 | BLE 5.4 · Nordic |
+| STM32 | ✅ Supported | ARM Cortex-M | Tier 2 | B-U585I-IOT02A · STEVAL-STWINBX1 · H753 · H723 |
 
-**Recommended:** ESP32-S3 DevKitM for full feature support and optimal performance.
+
+**Recommended:** ESP32-S3 DevKitM — or [AkiraConsole V3](https://akiraos.dev/akiraconsole) (coming to CrowdSupply).
+
+---
+
+## AkiraConsole V3
+
+The reference hardware platform for AkiraOS.
+
+**OSHWA Certified — UID: [MD000003](https://certification.oshwa.org/md000003.html)**
+Rev A.2 · Engineering samples in production · CrowdSupply campaign coming soon.
+
+→ ESP32-S3 dual-core 240MHz · 8MB PSRAM
+→ TFT display · ~33 FPS in AkiraOS
+→ 8 tactile buttons · Rotary encoder
+→ CC1121 sub-GHz radio · LoRa
+→ MicroSD · USB-C · Expansion headers
+
+[akiraos.dev/akiraconsole](https://akiraos.dev/akiraconsole)
+
+---
+
+## What's in v1.4.9 "Gl1tch"
+
+125 commits · 350 files · ~40,600 lines of changes
+
+- **WAMR Runtime** replaces legacy OCRE engine
+- **Capability Guard** security model — per-app permission enforcement  
+- **Full WASM Peripheral API** — GPIO, Display, BLE, HID, Sensors, Storage
+- **AkiraSDK** as independent git submodule
+- **AkiraConsole** board bringup complete
+
+[Full changelog →](CHANGELOG.md)
 
 ---
 
 ## Build System
 
-### Build Scripts
-
 ```bash
-# Build all platforms
 ./build.sh -b esp32s3_devkitm_esp32s3_procpu        # ESP32-S3
 ./build.sh -b esp32_devkitc_procpu                  # ESP32
 ./build.sh -b esp32c3_devkitm                       # ESP32-C3
-./build.sh -b native_sim                            # Native simulation
-
-# Clean rebuild
-./build.sh -b esp32s3_devkitm_esp32s3_procpu -r all
-
-# Run native simulation
-cd ../build && ./zephyr/zephyr.exe
+./build.sh -b native_sim                            # Simulation
+./build.sh -b esp32s3_devkitm_esp32s3_procpu -r all # Clean rebuild
 ```
 
-### Configuration
-
-Key configuration files:
-
-- **[prj.conf](prj.conf)** – Global Kconfig settings
-- **[boards/*.conf](boards/)** – Board-specific configurations
-- **[boards/*.overlay](boards/)** – Device tree overlays
-- **[west.yml](west.yml)** – Dependency manifest
+Key config files: `prj.conf` · `boards/*.conf` · `boards/*.overlay` · `west.yml`
 
 ---
 
 ## Security Model
 
-AkiraOS implements **defense-in-depth** security:
+1. **WASM Sandboxing** — no direct memory access to kernel space, stack/heap isolated per app
+2. **Capability Guard** — inline checks on every native API call, manifest-declared permissions
+3. **Secure Boot** — MCUboot validates firmware signature, WAMR validates module checksum
+4. **OTA Security** — SHA-256 integrity, atomic updates, rollback on failure
 
-### 1. WebAssembly Sandboxing
-
-- All user code runs in WASM sandbox
-- No direct memory access to kernel space
-- Stack/heap isolation per application
-
-### 2. Capability-Based Access Control
-
-```c
-// Apps must request permissions via manifest
-{
-  "capabilities": ["storage.read", "display.write"]
-}
-```
-
-### 3. Secure Boot Chain
-
-1. **MCUboot** validates firmware signature
-2. **WAMR** validates WASM module checksum
-3. **Runtime** enforces capability checks on every native call
-
-### 4. OTA Security
-
-- HTTPS/TLS transport
-- SHA-256 integrity verification
-- Atomic updates with rollback on failure
-
----
-
-## Development Workflow
-
-### 1. Local Development
-
-```bash
-# Native simulation (fastest iteration) — builds and runs automatically
-./build.sh   # defaults to native_sim
-```
-
-### 2. Hardware Testing
-
-```bash
-# Build and flash to ESP32-S3
-./build.sh -b esp32s3_devkitm_esp32s3_procpu -r a
-west espmonitor
-```
-
-### 3. WASM Application Development
-
-```bash
-cd AkiraSDK/wasm_apps
-./build.sh hello_world          # build a single app
-# Upload the .wasm to a running device over HTTP
-curl -X POST -F "file=@bin/hello_world.wasm" http://<device-ip>/upload
-```
+[Security architecture →](https://docs.akiraos.dev/architecture/security.html)
 
 ---
 
 ## Contributing
 
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+```bash
+git checkout -b feature/your-feature
+./build.sh                                           # test on native_sim first
+./build.sh -b esp32s3_devkitm_esp32s3_procpu -r a   # then on hardware
+```
 
-### Development Setup
-
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/amazing-feature`
-3. Test on native_sim first
-4. Test on target hardware (ESP32-S3 recommended)
-5. Submit a pull request
-
-### Code Style
-
-- **C Code:** Follow Zephyr coding style
-- **Documentation:** Markdown with Mermaid diagrams
-- **Commits:** Conventional commits format
+See [CONTRIBUTING.md](CONTRIBUTING.md) · Code style: Zephyr C · Commits: conventional format
 
 ---
 
-## License
+## Links
 
-AkiraOS is licensed under the **GNU General Public License v3.0**. See [LICENSE](LICENSE) for details.
-
-### Third-Party Components
-
-- **Zephyr RTOS**
-- **WASM Micro Runtime (WAMR)**
-- **MCUboot**
-- **ESP-IDF Components**
-
----
-
-## Community
-
-- **GitHub Issues:** [Report bugs](https://github.com/ArturR0k3r/AkiraOS/issues)
-- **Discussions:** [Ask questions](https://github.com/ArturR0k3r/AkiraOS/discussions)
+| | |
+|--|--|
+| 📖 Docs | [docs.akiraos.dev](https://docs.akiraos.dev) |
+| 🖥️ Hardware | [akiraos.dev/akiraconsole](https://akiraos.dev/akiraconsole) |
+| 🏷️ OSHWA | [certification.oshwa.org/md000003.html](https://certification.oshwa.org/md000003.html) |
+| 💬 Discussions | [GitHub Discussions](https://github.com/ArturR0k3r/AkiraOS/discussions) |
+| 📢 Telegram | [@theguywithpen](https://t.me/theguywithpen) |
+| 🛒 CrowdSupply | Coming soon — [akiraos.dev/akiraconsole](https://akiraos.dev/akiraconsole) |
 
 ---
 
 ## Acknowledgments
 
-Built on the shoulders of giants:
+[Zephyr Project](https://zephyrproject.org) · [Bytecode Alliance / WAMR](https://github.com/bytecodealliance/wasm-micro-runtime) · [Espressif Systems](https://espressif.com) · [Nordic Semiconductor](https://nordicsemi.com) · [MCUboot](https://mcuboot.com)
 
-- **Zephyr Project** – Robust RTOS foundation
-- **Bytecode Alliance** – WAMR excellence
-- **Espressif Systems** – ESP32 SDK and tools
-- **Nordic Semiconductor** – nRF development tools
+---
+
+<div align="center">
+
+**If AkiraOS is useful to you — a ⭐ helps others find it.**
+
+[Star on GitHub](https://github.com/ArturR0k3r/AkiraOS) · [Follow updates](https://t.me/theguywithpen) · [Docs](https://docs.akiraos.dev)
+
+*GPL-3.0 · Copyright © 2025–2026 PenEngineering SRL*
+
+</div>
