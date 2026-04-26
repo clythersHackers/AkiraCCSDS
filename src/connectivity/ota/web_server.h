@@ -15,7 +15,7 @@
 #include <stdbool.h>
 
 /* Web server configuration */
-#define WEB_SERVER_STACK_SIZE 8192  /* ESP32 lwIP poll needs ~2 KB of IRQ frames on Xtensa */
+#define WEB_SERVER_STACK_SIZE 8192 /* ESP32 lwIP poll needs ~2 KB of IRQ frames on Xtensa */
 #define WEB_SERVER_THREAD_PRIORITY 7
 #define HTTP_PORT 8080
 #define WEBSOCKET_PORT 8081
@@ -107,7 +107,6 @@ enum web_server_state web_server_get_state(void);
  * @param ip_address IP address string (can be NULL if not connected)
  */
 void web_server_notify_network_status(bool connected, const char *ip_address);
-
 
 /**
  * @brief Send log message to connected WebSocket clients

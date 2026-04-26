@@ -390,11 +390,6 @@ if(CONFIG_AKIRA_EMBEDDED_WEB OR CONFIG_AKIRA_OTA)
     target_sources(app PRIVATE src/connectivity/buf_pool.c)
 endif()
 
-# Legacy embedded web UI (optional)
-if(CONFIG_AKIRA_EMBEDDED_WEB)
-    target_sources(app PRIVATE src/connectivity/ota/web_server.c)
-endif()
-
 # ===== OTA Transport Layer =====
 # Only add OTA transports when OTA management is available (i.e., flash + mcuboot)
 if(CONFIG_AKIRA_OTA AND CONFIG_FLASH_MAP AND CONFIG_BOOTLOADER_MCUBOOT)
@@ -430,9 +425,10 @@ if(CONFIG_AKIRA_HID)
     endif()
 endif()
 
-# HTTP Server
+# HTTP Server — includes the web server (upload endpoint) and shell commands
 if(CONFIG_AKIRA_HTTP_SERVER)
-    target_sources(app PRIVATE 
+    target_sources(app PRIVATE
+        src/connectivity/ota/web_server.c
         src/connectivity/http/http_server.c
         src/shell/shell_web.c
     )

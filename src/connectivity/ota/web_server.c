@@ -260,7 +260,7 @@ static int send_http_response(int client_fd, int status_code, const char *conten
         {
             size_t to_send = (remaining > 512) ? 512 : remaining;
             ssize_t sent = send(client_fd, ptr, to_send, 0);
-            
+
             if (sent <= 0)
             {
                 if (errno == EAGAIN || errno == EWOULDBLOCK)
@@ -271,7 +271,7 @@ static int send_http_response(int client_fd, int status_code, const char *conten
                 LOG_ERR("Body send failed: errno=%d", errno);
                 return -1;
             }
-            
+
             ptr += sent;
             remaining -= sent;
             k_yield();
@@ -491,7 +491,8 @@ static int handle_firmware_upload(int client_fd, const char *request_headers, si
         if (end_boundary)
         {
             size_t data_len = end_boundary - (char *)upload_buf->data;
-            if (data_len >= 2) data_len -= 2; /* Remove preceding \r\n */
+            if (data_len >= 2)
+                data_len -= 2; /* Remove preceding \r\n */
 
             if (data_len > 0)
             {
@@ -574,10 +575,17 @@ static int handle_firmware_upload(int client_fd, const char *request_headers, si
 
 static bool check_upload_token(const char *request_headers)
 {
-#if defined(CONFIG_AKIRA_HTTP_UPLOAD_TOKEN) && (sizeof(CONFIG_AKIRA_HTTP_UPLOAD_TOKEN) > 1)
+#ifdef CONFIG_AKIRA_HTTP_UPLOAD_TOKEN
+    /* sizeof() on a string literal gives length + 1; <= 1 means empty string */
+    if (sizeof(CONFIG_AKIRA_HTTP_UPLOAD_TOKEN) <= 1)
+    {
+        return true; /* No token configured — allow */
+    }
+
     /* Locate Authorization header */
     const char *auth = strstr(request_headers, "Authorization: Bearer ");
-    if (!auth) {
+    if (!auth)
+    {
         return false;
     }
     auth += 22; /* skip "Authorization: Bearer " */
@@ -587,17 +595,18 @@ static bool check_upload_token(const char *request_headers)
     size_t expected_len = sizeof(CONFIG_AKIRA_HTTP_UPLOAD_TOKEN) - 1;
 
     /* Constant-time comparison to avoid trivial timing oracles */
-    if (given_len != expected_len) {
+    if (given_len != expected_len)
+    {
         return false;
     }
     uint8_t diff = 0;
-    for (size_t i = 0; i < expected_len; i++) {
+    for (size_t i = 0; i < expected_len; i++)
+    {
         diff |= (uint8_t)auth[i] ^ (uint8_t)CONFIG_AKIRA_HTTP_UPLOAD_TOKEN[i];
     }
     return diff == 0;
 #else
-    /* No token configured — allow (warn is emitted at server start) */
-    return true;
+    return true; /* No token configured — allow */
 #endif
 }
 
@@ -641,7 +650,8 @@ static int handle_http_request(int client_fd)
         if (strcmp(path, "/upload") == 0)
         {
             /* Authenticate before accepting any data */
-            if (!check_upload_token(buffer)) {
+            if (!check_upload_token(buffer))
+            {
                 LOG_WRN("Upload rejected: missing or invalid Bearer token");
                 return send_http_response(client_fd, 401, "text/plain",
                                           "Unauthorized", 0);
@@ -677,7 +687,8 @@ static int handle_http_request(int client_fd)
         if (strncmp(path, "/api/apps/install", 17) == 0)
         {
             /* Authenticate before accepting any data */
-            if (!check_upload_token(buffer)) {
+            if (!check_upload_token(buffer))
+            {
                 LOG_WRN("App install rejected: missing or invalid Bearer token");
                 return send_http_response(client_fd, 401, "text/plain",
                                           "Unauthorized", 0);
@@ -967,7 +978,7 @@ static int run_web_server(void)
 /* Server operations */
 static void do_start_server(void)
 {
-    if (server_state.state == WEB_SERVER_RUNNING || 
+    if (server_state.state == WEB_SERVER_RUNNING ||
         server_state.state == WEB_SERVER_STARTING)
     {
         return;
@@ -975,10 +986,10 @@ static void do_start_server(void)
 
     server_state.state = WEB_SERVER_STARTING;
     LOG_INF("Starting web server...");
-    
+
     /* This is a blocking call - runs until server is stopped */
     int ret = run_web_server();
-    
+
     if (ret < 0)
     {
         /* Server failed to start or encountered error */
@@ -1020,7 +1031,6 @@ static void do_network_status_changed(bool connected, const char *ip_address)
     {
         server_state.server_ip[0] = '\0';
         LOG_INF("Network disconnected");
-
     }
 }
 
