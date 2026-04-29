@@ -559,10 +559,8 @@ static void ota_worker_fn(void *p1, void *p2, void *p3)
             ota_thread_result = start_res;
             k_sem_give(&ota_done_sem);
             /* Discard any bytes already queued in the pipe */
-            size_t discard;
-            while (k_pipe_get(&ota_data_pipe, chunk, sizeof(chunk),
-                              &discard, 1, K_NO_WAIT) == 0 &&
-                   discard > 0)
+            while (k_pipe_read(&ota_data_pipe, chunk, sizeof(chunk),
+                               K_NO_WAIT) > 0)
             {
             }
             continue;
@@ -582,10 +580,9 @@ static void ota_worker_fn(void *p1, void *p2, void *p3)
                 bool do_abort = (ctrl.type == OTA_CMD_ABORT);
 
                 /* Drain all remaining bytes from pipe before finalizing */
-                size_t read;
-                while (k_pipe_get(&ota_data_pipe, chunk, sizeof(chunk),
-                                  &read, 1, K_NO_WAIT) == 0 &&
-                       read > 0)
+                ssize_t read;
+                while ((read = k_pipe_read(&ota_data_pipe, chunk, sizeof(chunk),
+                                           K_NO_WAIT)) > 0)
                 {
                     if (!do_abort)
                     {
@@ -613,20 +610,17 @@ static void ota_worker_fn(void *p1, void *p2, void *p3)
             }
 
             /* Read next chunk from pipe -- 100 ms timeout to re-check cmd queue */
-            size_t read;
-            int ret = k_pipe_get(&ota_data_pipe, chunk, sizeof(chunk),
-                                 &read, 1, K_MSEC(100));
-            if (ret == 0 && read > 0)
+            ssize_t read = k_pipe_read(&ota_data_pipe, chunk, sizeof(chunk),
+                                       K_MSEC(100));
+            if (read > 0)
             {
                 enum ota_result wr = do_write_chunk(chunk, (uint16_t)read);
                 if (wr != OTA_OK)
                 {
                     LOG_ERR("OTA worker: write chunk failed: %d", wr);
-                    /* Drain pipe so transport's k_pipe_put unblocks */
-                    size_t discard;
-                    while (k_pipe_get(&ota_data_pipe, chunk, sizeof(chunk),
-                                      &discard, 1, K_NO_WAIT) == 0 &&
-                           discard > 0)
+                    /* Drain pipe so transport's k_pipe_write unblocks */
+                    while (k_pipe_read(&ota_data_pipe, chunk, sizeof(chunk),
+                                       K_NO_WAIT) > 0)
                     {
                     }
                     ota_thread_result = wr;
@@ -811,13 +805,11 @@ enum ota_result ota_write_chunk(const uint8_t *data, size_t length)
         return OTA_ERROR_NOT_INITIALIZED;
     }
 
-    /* Push into pipe; min_xfer == length ensures the full chunk is queued */
-    size_t written;
-    int ret = k_pipe_put(&ota_data_pipe, (void *)data, length,
-                         &written, length, K_MSEC(5000));
-    if (ret != 0 || written != length)
+    /* Push into pipe; blocks until all bytes are queued or timeout */
+    ssize_t written = k_pipe_write(&ota_data_pipe, data, length, K_MSEC(5000));
+    if (written != (ssize_t)length)
     {
-        LOG_ERR("OTA pipe put timeout: written=%zu of %zu", written, length);
+        LOG_ERR("OTA pipe write timeout: written=%zd of %zu", written, length);
         return OTA_ERROR_TIMEOUT;
     }
 
