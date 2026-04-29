@@ -15,7 +15,7 @@ list(APPEND BOARD_ROOT ${CMAKE_CURRENT_LIST_DIR})
 list(APPEND DTS_ROOT ${CMAKE_CURRENT_LIST_DIR})
 
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
-project(akira_os VERSION 1.4.9)
+project(akira_os VERSION 1.5.4)
 
 
 

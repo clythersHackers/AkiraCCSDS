@@ -9,6 +9,8 @@
  * The akira-manifest custom section format:
  * - JSON encoded in UTF-8
  * - Contains: capabilities[], memory_quota, name, version
+ * @stability stable
+ * @since 1.4
  */
 
 #ifndef MANIFEST_PARSER_H

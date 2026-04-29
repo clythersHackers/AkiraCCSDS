@@ -5,6 +5,8 @@
  * TI CC1121: high-performance narrow-band Sub-GHz transceiver.
  * Covers 315/433/868/915 MHz bands via SPI (max 10 MHz).
  * Registers in the CC112x family, distinct from CC1101.
+ * @stability experimental
+ * @since 1.5
  */
 
 #ifndef AKIRA_CC1121_H

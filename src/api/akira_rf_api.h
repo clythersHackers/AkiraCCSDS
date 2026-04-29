@@ -1,6 +1,8 @@
 /**
  * @file akira_rf_api.h
  * @brief RF API declarations for WASM exports
+ * @stability experimental
+ * @since 1.4
  */
 
 #ifndef AKIRA_RF_API_H

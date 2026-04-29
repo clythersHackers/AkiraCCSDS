@@ -4,6 +4,8 @@
  *
  * Declares the interface for native functions exported to WASM,
  * available for WASM applications to call via the "akira" module.
+ * @stability stable
+ * @since 1.4
  */
 
 #ifndef AKIRA_NATIVE_API_H
@@ -25,7 +27,7 @@
  * @return 0 on success, -1 on error
  *
  * Fills buffer with null-terminated system information string.
- * Example: "AkiraOS v1.4.9 Gl1tch (WAMR Runtime)"
+ * Example: "AkiraOS v1.5.4 (WAMR Runtime)"
  */
 int sys_info(char *buffer, int buf_len);
 

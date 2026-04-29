@@ -4,6 +4,8 @@
  *
  * Manages Bluetooth stack initialization, advertising, connections,
  * and coordinates BLE services (HID, OTA, Shell).
+ * @stability experimental
+ * @since 1.4
  */
 
 #ifndef AKIRA_BT_MANAGER_H

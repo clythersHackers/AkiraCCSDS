@@ -1,3 +1,8 @@
+/**
+ * @file security.h
+ * @stability stable
+ * @since 1.3
+ */
 #ifndef AKIRA_RUNTIME_SECURITY_H
 #define AKIRA_RUNTIME_SECURITY_H
 

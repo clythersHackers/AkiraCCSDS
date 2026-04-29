@@ -4,6 +4,8 @@
  *
  * Provides comprehensive system management commands including
  * hardware control, diagnostics, and gaming-specific features.
+ * @stability stable
+ * @since 1.3
  */
 
 #ifndef AKIRA_SHELL_H

@@ -1,6 +1,8 @@
 /**
  * @file usb_hid.h
  * @brief USB HID Transport Header for HID Manager
+ * @stability experimental
+ * @since 1.4
  */
 
 #ifndef USB_HID_H

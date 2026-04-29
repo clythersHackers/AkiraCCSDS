@@ -6,7 +6,9 @@
  * Include this file to access all core OS features.
  *
  * @author Artur R0K3R
- * @version 1.4.8
+ * @version 1.5.4
+ * @stability stable
+ * @since 1.0
  */
 
 #ifndef AKIRA_CORE_H
@@ -28,9 +30,9 @@ extern "C"
     /*===========================================================================*/
 
 #define AKIRA_VERSION_MAJOR 1
-#define AKIRA_VERSION_MINOR 4
-#define AKIRA_VERSION_PATCH 8
-#define AKIRA_VERSION_STRING "1.4.x"
+#define AKIRA_VERSION_MINOR 5
+#define AKIRA_VERSION_PATCH 4
+#define AKIRA_VERSION_STRING "1.5.4"
 #define AKIRA_CODENAME "GL1TCH"
 
     /* Simple version struct */

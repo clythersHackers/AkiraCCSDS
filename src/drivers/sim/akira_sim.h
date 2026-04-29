@@ -4,6 +4,8 @@
  *
  * Provides a graphical simulation window showing the Akira Console
  * with interactive display and buttons.
+ * @stability experimental
+ * @since 1.4
  */
 
 #ifndef AKIRA_SIM_H

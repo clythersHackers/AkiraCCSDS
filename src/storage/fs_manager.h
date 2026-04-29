@@ -7,6 +7,8 @@
  * - Internal flash (LittleFS) 
  * - RAM disk (for temporary storage)
  * - Automatic fallback and path resolution
+ * @stability stable
+ * @since 1.3
  */
 
 #ifndef AKIRA_FS_MANAGER_H

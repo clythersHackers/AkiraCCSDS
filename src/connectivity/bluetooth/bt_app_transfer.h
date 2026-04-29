@@ -10,6 +10,8 @@
  *   - RX_DATA:   Write without response - receives app chunks
  *   - TX_STATUS: Notify - transfer status updates
  *   - CONTROL:   Write - transfer control (start/abort/commit)
+ * @stability experimental
+ * @since 1.4
  */
 
 #ifndef BT_APP_TRANSFER_H

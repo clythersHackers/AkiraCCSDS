@@ -3,7 +3,9 @@
 * @brief Key-value settings storage with NVS backend
 *
 *
-*/
+ * @stability stable
+ * @since 1.4
+ */
 
 #ifndef AKIRA_SETTINGS_H
 #define AKIRA_SETTINGS_H

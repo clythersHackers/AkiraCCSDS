@@ -2,6 +2,7 @@ name: Akira CI
 
 on:
   push:
+  pull_request:
 
 jobs:
   build:
@@ -96,3 +97,123 @@ jobs:
         run: |
           docker stop zephyr-ci || true
           docker rm zephyr-ci || true
+
+  # ── ztest suite on native_sim ───────────────────────────────────────────────
+  test:
+    runs-on: ubuntu-latest
+    name: Tests (native_sim)
+
+    env:
+      ZEPHYR_TOOLCHAIN_VARIANT: zephyr
+      ZEPHYR_SDK_INSTALL_DIR: /opt/toolchains/zephyr-sdk-0.17.4
+
+    steps:
+      - name: Free Disk Space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/share/boost
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          sudo docker system prune -af
+          df -h
+
+      - name: Start container
+        run: |
+          docker pull ghcr.io/zephyrproject-rtos/ci:latest
+          docker run -d --name zephyr-test -v $PWD:/workspace -w /workspace \
+            --user root ghcr.io/zephyrproject-rtos/ci:latest tail -f /dev/null
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          path: akira-os
+          submodules: recursive
+
+      - name: Initialize west workspace
+        run: |
+          docker exec -w /workspace/akira-os zephyr-test bash -c \
+            "west init -l . && west update"
+
+      - name: Setup Zephyr SDK
+        run: |
+          docker exec \
+            -e ZEPHYR_SDK_INSTALL_DIR=/opt/toolchains/zephyr-sdk-0.17.4 \
+            -e ZEPHYR_TOOLCHAIN_VARIANT=zephyr \
+            -w /workspace/akira-os zephyr-test bash -c '
+            if [ ! -f "$ZEPHYR_SDK_INSTALL_DIR/sdk_version" ]; then
+              echo "Zephyr SDK not found, installing...";
+              wget -q https://github.com/zephyrproject-rtos/sdk-ng/releases/download/v0.17.4/zephyr-sdk-0.17.4_linux-x86_64.tar.xz;
+              tar xf zephyr-sdk-0.17.4_linux-x86_64.tar.xz -C /opt/toolchains;
+              cd /opt/toolchains/zephyr-sdk-0.17.4;
+              ./setup.sh -t x86_64 -h -c;
+            else
+              echo "Zephyr SDK already installed";
+            fi
+          '
+
+      - name: Zephyr env
+        run: |
+          docker exec \
+            -e ZEPHYR_SDK_INSTALL_DIR=/opt/toolchains/zephyr-sdk-0.17.4 \
+            -e ZEPHYR_TOOLCHAIN_VARIANT=zephyr \
+            -w /workspace/akira-os zephyr-test west zephyr-export
+
+      - name: Run ztest suite via Twister
+        run: |
+          docker exec \
+            -e ZEPHYR_SDK_INSTALL_DIR=/opt/toolchains/zephyr-sdk-0.17.4 \
+            -e ZEPHYR_TOOLCHAIN_VARIANT=zephyr \
+            -w /workspace/akira-os zephyr-test bash -c '
+              west twister \
+                --testsuite-root tests/ \
+                --platform native_sim \
+                --coverage \
+                --coverage-tool gcovr \
+                --outdir twister-out \
+                -v
+            '
+
+      - name: Upload test results (JUnit)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: twister-results
+          path: akira-os/twister-out/**/twister.xml
+
+      - name: Annotate PR with test results
+        if: always()
+        uses: dorny/test-reporter@v1
+        with:
+          name: ztest results
+          path: akira-os/twister-out/**/twister.xml
+          reporter: java-junit
+
+      - name: Generate coverage report (XML)
+        run: |
+          docker exec \
+            -e ZEPHYR_SDK_INSTALL_DIR=/opt/toolchains/zephyr-sdk-0.17.4 \
+            -w /workspace/akira-os zephyr-test bash -c '
+              pip install gcovr --quiet
+              gcovr \
+                --root . \
+                --xml coverage.xml \
+                --xml-pretty \
+                --exclude "twister-out" \
+                --exclude "modules" \
+                --exclude "tests" \
+                twister-out/ || true
+            '
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: akira-os/coverage.xml
+          fail_ci_if_error: false
+          verbose: false
+
+      - name: Cleanup container
+        if: always()
+        run: |
+          docker stop zephyr-test || true
+          docker rm zephyr-test || true

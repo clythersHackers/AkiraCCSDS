@@ -44,7 +44,7 @@ LOG_MODULE_REGISTER(akira_main, CONFIG_AKIRA_LOG_LEVEL);
 int main(void)
 {
     LOG_INF("=====================================================)");
-    LOG_INF("AkiraOS booting (Minimalist v1.4.8 - Hardened Runtime)"); 
+    LOG_INF("AkiraOS booting (v1.5.4 - Hardened Runtime)"); 
     LOG_INF("Platform: %s", akira_get_platform_name());
     LOG_INF("Build: %s %s", __DATE__, __TIME__);
     LOG_INF("=====================================================)");
@@ -70,7 +70,7 @@ int main(void)
     akira_display_text(5, y_pos, "AkiraOS booting", text_color);
     y_pos += line_height;
     
-    akira_display_text(5, y_pos, "Minimalist v1.4.8", text_color);
+    akira_display_text(5, y_pos, "AkiraOS v1.5.4", text_color);
     y_pos += line_height;
     
     snprintf(buf, sizeof(buf), "Platform: %s", akira_get_platform_name());

@@ -7,6 +7,22 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.5.4] — 2026-04-29
+
+### Added
+- API stability annotations (`@stability`, `@since`) on every public header.
+- `docs/api-stability-policy.md` — formal 2-release deprecation policy.
+- Cooperative scheduling model and watchdog contract documented in
+  `docs/architecture/scheduling-and-watchdog.md`.
+- Full ztest suite (54 tests) covering security, OTA, app lifecycle,
+  manifest parser; GitHub Actions CI with gcov/Codecov coverage badge.
+
+### Changed
+- Version bumped from 1.5.1 → 1.5.4 across all files.
+- Log banner updated to `AkiraOS v1.5.4 - Hardened Runtime`.
+
+---
+
 ## [1.4.9] — "Gl1tch" — 2026-03-21
 
 > **Release branch:** `v1.4.x` | **PR:** [#52](https://github.com/ArturR0k3r/AkiraOS/pull/52)

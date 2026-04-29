@@ -4,6 +4,8 @@
  *
  * Manages firmware updates, validation, and rollback functionality
  * with MCUboot integration and web-based upload support.
+ * @stability stable
+ * @since 1.4
  */
 
 #ifndef OTA_MANAGER_H

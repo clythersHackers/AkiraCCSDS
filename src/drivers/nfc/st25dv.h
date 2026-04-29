@@ -15,6 +15,8 @@
  *
  * GPO interrupt → NFC_INT → GPIO21 (fires on RF field detect, write
  * completion, or mailbox full/empty, depending on GPO_CTRL register).
+ * @stability experimental
+ * @since 1.5
  */
 
 #ifndef AKIRA_ST25DV_H

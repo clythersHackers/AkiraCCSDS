@@ -5,6 +5,8 @@
  * Self-contained web server module that runs on its own thread,
  * handles HTTP requests, OTA uploads, and provides web interface
  * for the ESP32 gaming device.
+ * @stability experimental
+ * @since 1.4
  */
 
 #ifndef WEB_SERVER_H

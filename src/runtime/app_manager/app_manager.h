@@ -12,6 +12,8 @@
  * - Auto-restart with configurable retries
  * - Persistent registry in LittleFS
  * - Optional manifest with defaults
+ * @stability stable
+ * @since 1.4
  */
 
 #ifndef AKIRA_APP_MANAGER_H

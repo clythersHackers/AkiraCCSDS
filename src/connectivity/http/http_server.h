@@ -7,6 +7,8 @@
  * - REST API
  * - OTA uploads (when requested)
  * - Real-time data streaming (WebSocket)
+ * @stability experimental
+ * @since 1.5
  */
 
 #ifndef AKIRA_HTTP_SERVER_H
