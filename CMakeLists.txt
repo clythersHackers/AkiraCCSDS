@@ -402,7 +402,7 @@ if(CONFIG_FLASH_MAP AND CONFIG_BOOTLOADER_MCUBOOT)
 endif()
 
 # Shared buffer pool for connectivity (HTTP uploads, OTA, etc.)
-if(CONFIG_AKIRA_EMBEDDED_WEB OR CONFIG_AKIRA_OTA)
+if(CONFIG_AKIRA_HTTP_SERVER OR CONFIG_AKIRA_OTA)
     target_sources(app PRIVATE src/connectivity/buf_pool.c)
 endif()
 
@@ -441,12 +441,12 @@ if(CONFIG_AKIRA_HID)
     endif()
 endif()
 
-# HTTP Server — includes the web server (upload endpoint) and shell commands
+# HTTP Server — generic route-based server + API routes + shell commands
 if(CONFIG_AKIRA_HTTP_SERVER)
     target_sources(app PRIVATE
-        src/connectivity/ota/web_server.c
         src/connectivity/http/http_server.c
-        src/shell/shell_web.c
+        src/connectivity/http/http_routes.c
+        src/shell/shell_http.c
     )
 endif()
 
@@ -482,6 +482,16 @@ if(CONFIG_AKIRA_USB_HID)
     target_sources(app PRIVATE
         src/connectivity/usb/usb_hid.c
     )
+endif()
+
+# HID app command handler (Report ID 3 — WebHID protocol)
+if(CONFIG_AKIRA_HID_APP_HANDLER)
+    target_sources(app PRIVATE src/connectivity/hid/hid_app_handler.c)
+endif()
+
+# mDNS / DNS-SD device advertisement
+if(CONFIG_AKIRA_MDNS)
+    target_sources(app PRIVATE src/connectivity/net/mdns_service.c)
 endif()
 
 # ===== Client Connectivity =====

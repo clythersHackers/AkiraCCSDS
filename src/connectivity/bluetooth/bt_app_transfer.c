@@ -350,6 +350,57 @@ static ssize_t control_write(struct bt_conn *conn,
     }
     break;
 
+    case BT_APP_CMD_APP_START:
+    {
+        if (len < 2)
+        {
+            k_mutex_unlock(&xfer_mutex);
+            return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_LEN);
+        }
+        char name[32] = {0};
+        strncpy(name, (const char *)&data[1],
+                MIN((int)(len - 1), (int)sizeof(name) - 1));
+        k_mutex_unlock(&xfer_mutex);
+        int ret = app_manager_start(name);
+        k_mutex_lock(&xfer_mutex, K_FOREVER);
+        send_status(ret < 0 ? BT_APP_STATUS_ERROR : BT_APP_STATUS_OK, 0);
+    }
+    break;
+
+    case BT_APP_CMD_APP_STOP:
+    {
+        if (len < 2)
+        {
+            k_mutex_unlock(&xfer_mutex);
+            return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_LEN);
+        }
+        char name[32] = {0};
+        strncpy(name, (const char *)&data[1],
+                MIN((int)(len - 1), (int)sizeof(name) - 1));
+        k_mutex_unlock(&xfer_mutex);
+        int ret = app_manager_stop(name);
+        k_mutex_lock(&xfer_mutex, K_FOREVER);
+        send_status(ret < 0 ? BT_APP_STATUS_ERROR : BT_APP_STATUS_OK, 0);
+    }
+    break;
+
+    case BT_APP_CMD_APP_DELETE:
+    {
+        if (len < 2)
+        {
+            k_mutex_unlock(&xfer_mutex);
+            return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_LEN);
+        }
+        char name[32] = {0};
+        strncpy(name, (const char *)&data[1],
+                MIN((int)(len - 1), (int)sizeof(name) - 1));
+        k_mutex_unlock(&xfer_mutex);
+        int ret = app_manager_uninstall(name);
+        k_mutex_lock(&xfer_mutex, K_FOREVER);
+        send_status(ret < 0 ? BT_APP_STATUS_ERROR : BT_APP_STATUS_OK, 0);
+    }
+    break;
+
     default:
         LOG_WRN("Unknown command: 0x%02X", cmd);
         k_mutex_unlock(&xfer_mutex);

@@ -25,7 +25,8 @@
 #include <runtime/app_manager/app_manager.h>
 #endif
 #ifdef CONFIG_AKIRA_HTTP_SERVER
-#include "ota/web_server.h"
+#include "http_server.h"
+#include "http_routes.h"
 #include "ota/ota_manager.h"
 #endif
 #ifdef CONFIG_AKIRA_SETTINGS
@@ -36,6 +37,9 @@
 #endif
 #ifdef CONFIG_AKIRA_USB_HID
 #include <connectivity/usb/usb_hid.h>
+#endif
+#ifdef CONFIG_AKIRA_HID_APP_HANDLER
+#include <connectivity/hid/hid_app_handler.h>
 #endif
 
 LOG_MODULE_REGISTER(akira_main, CONFIG_AKIRA_LOG_LEVEL);
@@ -116,6 +120,17 @@ int main(void)
     }
 #endif
 
+#ifdef CONFIG_AKIRA_HID_APP_HANDLER
+    if (hid_app_handler_init() < 0)
+    {
+        LOG_WRN("HID app handler init failed");
+    }
+    else
+    {
+        LOG_INF("HID app handler initialized (WebHID Report ID 3)");
+    }
+#endif
+
 #ifdef CONFIG_AKIRA_BT_HID
     /* Initialize HID manager */
 
@@ -137,7 +152,7 @@ int main(void)
 #endif
 
 #ifdef CONFIG_AKIRA_HTTP_SERVER
-    /* Initialize OTA manager before starting web server */
+    /* Initialize OTA manager (required by /upload endpoint) */
     if (ota_manager_init() < 0)
     {
         LOG_ERR("OTA manager init failed");
@@ -147,13 +162,21 @@ int main(void)
         LOG_INF("OTA manager initialized");
     }
 
-    if (web_server_start(NULL) < 0)
+    if (akira_http_server_init() < 0)
     {
-        LOG_WRN("Failed to start webserver thread!");
+        LOG_ERR("HTTP server init failed");
+    }
+    else if (akira_http_routes_init() < 0)
+    {
+        LOG_ERR("HTTP routes init failed");
+    }
+    else if (akira_http_server_start() < 0)
+    {
+        LOG_WRN("Failed to start HTTP server!");
     }
     else
     {
-        LOG_INF("Web server thread running!");
+        LOG_INF("HTTP server started on port %d", HTTP_SERVER_PORT);
     }
 #endif
 

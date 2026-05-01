@@ -267,6 +267,8 @@ static int handle_request(int client_fd, char *buffer, size_t len)
         .body = body,
         .body_len = body_len,
         .content_length = content_length,
+        .raw = buffer,
+        .client_fd = client_fd,
     };
 
     /* Build response context */
@@ -280,6 +282,8 @@ static int handle_request(int client_fd, char *buffer, size_t len)
     http_response_t res = {
         .status_code = 200,
         .content_type = HTTP_CONTENT_HTML,
+        .body = NULL,
+        .body_len = 0,
     };
 
     /* Find matching route */
@@ -291,10 +295,23 @@ static int handle_request(int client_fd, char *buffer, size_t len)
         resp_ctx.status_code = res.status_code;
         resp_ctx.content_type = res.content_type;
 
-        if (ret != 0 && !resp_ctx.headers_sent)
+        if (!resp_ctx.headers_sent)
         {
-            resp_ctx.status_code = 500;
-            resp_send(&resp_ctx, "Internal Server Error", 21);
+            if (ret == 0 && res.body != NULL)
+            {
+                size_t blen = res.body_len ? res.body_len : strlen(res.body);
+                resp_send(&resp_ctx, res.body, blen);
+            }
+            else if (ret != 0)
+            {
+                resp_ctx.status_code = 500;
+                resp_send(&resp_ctx, "Internal Server Error", 21);
+            }
+            else
+            {
+                /* Handler sent no body and no error: send empty 200 */
+                resp_send(&resp_ctx, "", 0);
+            }
         }
     }
     else
@@ -572,6 +589,12 @@ void akira_http_notify_network(bool connected, const char *ip_address)
     {
         strncpy(http_srv.stats.server_ip, ip_address, sizeof(http_srv.stats.server_ip) - 1);
         LOG_INF("Network connected: %s", ip_address);
+
+#ifdef CONFIG_AKIRA_MDNS
+        /* Advertise via mDNS/DNS-SD once we have an IP */
+        extern void akira_mdns_start(const char *device_name);
+        akira_mdns_start(NULL);
+#endif
     }
     else
     {
@@ -594,6 +617,17 @@ int akira_http_get_stats(http_server_stats_t *stats)
     k_mutex_unlock(&http_srv.mutex);
 
     return 0;
+}
+
+/* Upload response: set by upload_chunk_cb_t on final chunk; read by handle_request */
+static const char *upload_response_ptr = "{\"status\":\"ok\"}";
+
+void akira_http_set_upload_response(const char *json)
+{
+    if (json)
+    {
+        upload_response_ptr = json;
+    }
 }
 
 /*===========================================================================*/

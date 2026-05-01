@@ -522,6 +522,15 @@ config AKIRA_USB_HID
     help
       Enable HID over USB.
 
+config AKIRA_HID_APP_HANDLER
+    bool "Enable USB HID app command handler (WebHID protocol)"
+    default y
+    depends on AKIRA_USB_HID && AKIRA_APP_MANAGER
+    help
+      Enables the AkiraOS WebHID command dispatcher on USB HID Report ID 3.
+      Allows the AkiraApp web UI to manage apps and device state over USB
+      without requiring a WiFi connection.
+
 config AKIRA_HID_SIM
     bool "Enable HID simulation (for testing)"
     default y
@@ -529,6 +538,20 @@ config AKIRA_HID_SIM
     help
       Enable HID simulation transport for native_sim testing.
       Logs HID events instead of sending to real hardware.
+
+config AKIRA_MDNS
+    bool "Enable mDNS/DNS-SD service advertisement"
+    default y
+    depends on AKIRA_HTTP_SERVER && NET_IPV4
+    select MDNS_RESPONDER if NET_MGMT
+    select DNS_SD if NET_MGMT
+    help
+      Advertises the device on the local network as:
+        {AKIRA_DEVICE_NAME}._akiraos._tcp.local
+        {AKIRA_DEVICE_NAME}._http._tcp.local
+      The device is reachable via http://{NET_HOSTNAME}.local:8080/.
+      Requires CONFIG_MDNS_RESPONDER=y and CONFIG_DNS_SD=y in the
+      board-specific .conf file.
 
 config AKIRA_HTTP_SERVER
     bool "Enable HTTP server"
@@ -568,14 +591,21 @@ config AKIRA_HTTP_UPLOAD_TOKEN
       Clients must send: Authorization: Bearer <token>
       An empty string disables token checking (not recommended for production).
 
-config AKIRA_EMBEDDED_WEB
-    bool "Enable embedded HTML Web UI"
-    default n
+config AKIRA_HTTP_NO_AUTH
+    bool "Disable Bearer token authentication on HTTP endpoints"
+    default y
     depends on AKIRA_HTTP_SERVER
     help
-      Enable the embedded HTML web UI server hosted directly on the device.
-      Deprecated: replaced by the AkiraHub app store in Phase 2.
-      Disabling this saves memory; use akira-cli for device management.
+      When enabled, Bearer token checks are skipped on all HTTP endpoints.
+      Suitable for development or trusted local-network deployments.
+      For production, disable this and set AKIRA_HTTP_UPLOAD_TOKEN.
+
+config AKIRA_DEVICE_NAME
+    string "Device display name"
+    default "AkiraOS Device"
+    help
+      Human-readable device name returned by GET /api/v1/info and shown
+      in app.akiraos.dev connection panels.
 
 endmenu
 
