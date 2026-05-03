@@ -151,8 +151,8 @@
 		protocol-code         = "none";
 		in-polling-period-us  = <1000>;
 		out-polling-period-us = <1000>;
-		in-report-size        = <9>;
-		out-report-size       = <2>;
+		in-report-size        = <64>;
+		out-report-size       = <64>;
 	};
 };
 

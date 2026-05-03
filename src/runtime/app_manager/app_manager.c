@@ -1177,13 +1177,27 @@ int app_manager_install_end(int session, const app_manifest_t *manifest)
         return -EAGAIN;
     }
 
-    /* Install the app */
-    int ret = app_manager_install(
-        g_sessions[session].name,
-        g_sessions[session].buffer,
-        g_sessions[session].total_size,
-        manifest,
-        g_sessions[session].source);
+    /* Auto-detect .akpkg (gzip) and dispatch accordingly */
+    int ret;
+    if (akpkg_is_gzip(g_sessions[session].buffer, g_sessions[session].received))
+    {
+        LOG_INF("install_end: detected .akpkg, decompressing session %d", session);
+        ret = app_manager_install_akpkg(
+            g_sessions[session].name, APP_NAME_MAX_LEN,
+            g_sessions[session].buffer,
+            g_sessions[session].total_size,
+            g_sessions[session].source);
+    }
+    else
+    {
+        /* Install the app */
+        ret = app_manager_install(
+            g_sessions[session].name,
+            g_sessions[session].buffer,
+            g_sessions[session].total_size,
+            manifest,
+            g_sessions[session].source);
+    }
 
     /* Clean up session */
     akira_free_buffer(g_sessions[session].buffer);

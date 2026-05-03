@@ -345,7 +345,19 @@ static int usb_hid_set_report(const struct device *dev,
         k_mutex_unlock(&usb_hid_ctx.mutex);
         if (handler && len > 0)
         {
-            handler(buf, (uint8_t)MIN(len, USB_HID_RAW_PAYLOAD_SIZE));
+            const uint8_t *data = buf;
+            uint16_t dlen = len;
+            /* Some Windows HID drivers include the Report ID as the first
+             * byte of the SET_REPORT data phase even though the HID spec
+             * says it should not be present (the ID is in the SETUP wValue).
+             * Strip it BEFORE clamping so the handler always receives a full
+             * USB_HID_RAW_PAYLOAD_SIZE-byte payload (not one byte short). */
+            if (dlen > 0 && data[0] == USB_HID_RAW_REPORT_ID)
+            {
+                data++;
+                dlen--;
+            }
+            handler(data, (uint8_t)MIN(dlen, (uint16_t)USB_HID_RAW_PAYLOAD_SIZE));
         }
     }
     return 0;
@@ -402,6 +414,48 @@ static uint32_t usb_hid_get_idle(const struct device *dev, const uint8_t id)
 }
 
 /**
+ * @brief Output report callback (interrupt OUT endpoint)
+ *
+ * Called by the USB stack when the host sends data via the interrupt OUT
+ * endpoint.  This is the path used by Linux and macOS hidapi (hid_write),
+ * as opposed to the SET_REPORT control transfer used by Windows.
+ *
+ * The data arriving on the interrupt OUT endpoint always includes the
+ * Report ID as the first byte when the device uses multiple report IDs,
+ * so strip it before forwarding to the raw handler — same logic as
+ * usb_hid_set_report().
+ */
+static void usb_hid_output_report(const struct device *dev,
+                                  const uint16_t len, const uint8_t *const buf)
+{
+    ARG_UNUSED(dev);
+
+    if (len == 0 || buf == NULL)
+    {
+        return;
+    }
+
+    /* Only dispatch vendor raw reports (Report ID 3). */
+    if (buf[0] != USB_HID_RAW_REPORT_ID)
+    {
+        return;
+    }
+
+    usb_hid_raw_handler_t handler;
+    k_mutex_lock(&usb_hid_ctx.mutex, K_FOREVER);
+    handler = usb_hid_ctx.raw_handler;
+    k_mutex_unlock(&usb_hid_ctx.mutex);
+
+    if (handler)
+    {
+        /* buf[0] is the Report ID — skip it, clamp to payload size. */
+        const uint8_t *data = buf + 1;
+        uint16_t dlen = len - 1;
+        handler(data, (uint8_t)MIN(dlen, (uint16_t)USB_HID_RAW_PAYLOAD_SIZE));
+    }
+}
+
+/**
  * @brief Input report done callback
  *
  * Called when an input report has been successfully sent.
@@ -421,6 +475,7 @@ static const struct hid_device_ops usb_hid_ops = {
     .iface_ready = usb_hid_iface_ready,
     .get_report = usb_hid_get_report,
     .set_report = usb_hid_set_report,
+    .output_report = usb_hid_output_report,
     .set_idle = usb_hid_set_idle,
     .get_idle = usb_hid_get_idle,
     .set_protocol = usb_hid_set_protocol,
