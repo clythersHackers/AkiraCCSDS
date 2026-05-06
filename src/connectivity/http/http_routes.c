@@ -795,6 +795,7 @@ static int route_options(const http_request_t *req, http_response_t *res,
     res->status_code = 204;
     res->content_type = HTTP_CONTENT_TEXT;
     res->body = "";
+    res->body_len = 0;
     return 0;
 }
 
