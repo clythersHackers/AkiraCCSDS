@@ -14,6 +14,41 @@ list(APPEND BOARD_ROOT ${CMAKE_CURRENT_LIST_DIR})
 # DTS_ROOT should point to directory that CONTAINS a 'dts/bindings' subdirectory
 list(APPEND DTS_ROOT ${CMAKE_CURRENT_LIST_DIR})
 
+# ---------------------------------------------------------------------------
+# Append board-specific ILI9341 overlay via EXTRA_DTC_OVERLAY_FILE.
+#
+# When CONFIG_AKIRA_ILI9341_DRIVER=y is set in a board's .conf file, look for
+# boards/<board_base>/<board_safe>_ili9341.overlay and append it automatically.
+# This keeps all ILI9341 DTS config in its own file, one per board, and works
+# for every board without any #ifdef guards in overlay files.
+# ---------------------------------------------------------------------------
+if(DEFINED BOARD)
+  string(REPLACE "/" "_" _akira_board_safe "${BOARD}")
+  string(REPLACE "/" ";" _akira_board_parts "${BOARD}")
+  list(GET _akira_board_parts 0 _akira_board_base)
+
+  set(_akira_bconf "${CMAKE_CURRENT_LIST_DIR}/boards/${_akira_board_safe}.conf")
+  if(NOT EXISTS "${_akira_bconf}")
+    set(_akira_bconf "${CMAKE_CURRENT_LIST_DIR}/boards/${_akira_board_base}.conf")
+  endif()
+
+  if(EXISTS "${_akira_bconf}")
+    file(READ "${_akira_bconf}" _akira_board_conf_text)
+    if(_akira_board_conf_text MATCHES
+       "(^|\n)[ \t]*CONFIG_AKIRA_ILI9341_DRIVER[ \t]*=[ \t]*y([ \t\n]|$)")
+      set(_akira_ili_overlay
+          "${CMAKE_CURRENT_LIST_DIR}/boards/${_akira_board_base}/${_akira_board_safe}_ili9341.overlay")
+      if(EXISTS "${_akira_ili_overlay}")
+        list(APPEND EXTRA_DTC_OVERLAY_FILE "${_akira_ili_overlay}")
+        message(STATUS "AkiraOS: ILI9341 overlay → ${_akira_ili_overlay}")
+      else()
+        message(WARNING
+          "AkiraOS: CONFIG_AKIRA_ILI9341_DRIVER=y but overlay not found: ${_akira_ili_overlay}")
+      endif()
+    endif()
+  endif()
+endif()
+
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(akira_os VERSION 1.5.4)
 

@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-// AkiraConsole Production — application-level DTS overlay
-// Hardware description lives in boards/akiraconsole_prod/*.dts
-// This file adds: flash partitions, settings, filesystem, USB HID, display overrides.
+// AkiraConsole Production — application-level overlay.
+// Board hardware (pins, buses, peripherals) defined in boards/akiraconsole_prod/*.dts
+// This file enables peripherals for the app build and adds display/USB config.
 
 #include <zephyr/dt-bindings/gpio/gpio.h>
-#include <zephyr/dt-bindings/mipi_dbi/mipi_dbi.h>
 
 // =============================================================================
 // PSRAM
@@ -28,37 +27,20 @@
 &uart0 { status = "okay"; current-speed = <115200>; };
 
 // =============================================================================
-// SPI2 CS-GPIO override
-//
-// The board DTS routes LR_CS (reg=0) and CC_CS (reg=3) through TCA6408 pins.
-// When TCA6408 is not connected / disabled, those phandle references cause a
-// compile-time ordinal error (__device_dts_ord_N undeclared).
-//
-// Override: redirect disabled CS slots to GPIO2 (EXT_CS, spare line) so the
-// SPI2 driver compiles cleanly.  Re-wire to TCA6408 entries once fitted:
-//   cs-gpios[0] = <&tca6408 4 GPIO_ACTIVE_LOW>;  // LR_CS
-//   cs-gpios[3] = <&tca6408 1 GPIO_ACTIVE_LOW>;  // CC_CS
+// SPI2 — no cs-gpios override needed for ST7789V or ILI9341 modes.
+// Sharp LCD (J4) override: set CONFIG_AKIRA_SHARP_DISPLAY=y — see below.
 // =============================================================================
-&spi2 {
-	cs-gpios =
-		<&gpio0 2  GPIO_ACTIVE_LOW>,   // [0] LR_CS  → GPIO2  (TCA6408 P4 when fitted)
-		<&gpio0 10 GPIO_ACTIVE_LOW>,   // [1] TFT_CS → GPIO10 (direct)
-		<&gpio0 14 GPIO_ACTIVE_LOW>,   // [2] SD_CS  → GPIO14 (direct)
-		<&gpio0 2  GPIO_ACTIVE_LOW>;   // [3] CC_CS  → GPIO2  (TCA6408 P1 when fitted)
-};
-
 // =============================================================================
-// I2C bus and devices.
-// nxp,pcal6408a (TCA6408) and bosch,bme280 disabled in board DTS for MCUboot.
-// Enable here for app build only.
-//
-// TCA6408: NOT CONNECTED — keep disabled until fitted.
-// BME280:  enabled below.
+// I2C — TCA6408 (pca9538) and BME280 disabled in board DTS for MCUboot.
+// Enabled here for app build only.
 // =============================================================================
 #ifndef CONFIG_MCUBOOT
 &i2c0 { status = "okay"; };
 
-// &tca6408 { status = "okay"; };  // NOT CONNECTED — uncomment when fitted
+&tca6408 {
+	status = "okay";
+	/delete-property/ int-gpios;
+};
 &bme280  { status = "okay"; };  // bosch,bme280 (I2C addr 0x77)
 #endif /* !CONFIG_MCUBOOT */
 
@@ -72,48 +54,16 @@
 };
 
 // =============================================================================
-// Display option 1 (default): ST7789V TFT on J7 via MIPI DBI
-// zephyr,display already set to &st7789v_prod in board DTS.
+// Display
+// Default : ST7789V via MIPI-DBI (board DTS default, no overlay changes needed).
+// ILI9341 : set CONFIG_AKIRA_ILI9341_DRIVER=y in the board .conf —
+//           CMakeLists.txt appends boards/akiraconsole_prod/*_ili9341.overlay.
+// Sharp   : set CONFIG_AKIRA_SHARP_DISPLAY=y (see block below).
 // =============================================================================
-
 // =============================================================================
-// Display option 2: AkiraOS ILI9341 direct-SPI driver on J7
-// Activate: CONFIG_AKIRA_ILI9341_DRIVER=y, drop CONFIG_ST7789V + MIPI_DBI_SPI.
-// DC=GPIO9, RST=GPIO45, CS=GPIO10 (cs-gpios[1], active low) — same hardware.
-// =============================================================================
-#ifdef CONFIG_AKIRA_ILI9341_DRIVER
-/ {
-	chosen {
-		zephyr,display = &akira_ili9341_prod;
-	};
-};
-
-&mipi_dbi_prod {
-	status = "disabled";
-};
-
-&spi2 {
-	akira_ili9341_prod: akira_ili9341@1 {
-		compatible        = "akira,ili9341";
-		reg               = <1>;                          // cs-gpios[1] = GPIO10
-		spi-max-frequency = <25000000>;
-		dc-gpios          = <&gpio0 9  GPIO_ACTIVE_HIGH>; // TFT_DC  = GPIO9
-		reset-gpios       = <&gpio1 13 GPIO_ACTIVE_LOW>;  // TFT_RST = GPIO45
-		width             = <320>;
-		height            = <240>;
-		status            = "okay";
-	};
-};
-#endif /* CONFIG_AKIRA_ILI9341_DRIVER */
-
-// =============================================================================
-// Display option 3: Sharp LS027B7DH01 Memory LCD on J4 (XF2M-1015-1A, 10-pin)
-// Activate: CONFIG_AKIRA_SHARP_DISPLAY=y, drop CONFIG_ST7789V + MIPI_DBI_SPI.
-//
-// KEY DIFFERENCE from TFT: Sharp SCS is ACTIVE HIGH (unusual SPI CS polarity).
-// This override replaces cs-gpios[1] polarity and enables the Sharp node.
-// VDD/VDDA require +5V from LM2750 charge pump (always running).
-// EXTMODE = LOW by default (R61 0Ω → GND): COM inversion via serial command.
+// Sharp LS027B7DH01 Memory LCD on J4 — only active when
+// CONFIG_AKIRA_SHARP_DISPLAY=y.
+// SCS polarity is ACTIVE_HIGH (unusual); cs-gpios[1] overridden below.
 // =============================================================================
 #ifdef CONFIG_AKIRA_SHARP_DISPLAY
 / {
@@ -129,12 +79,10 @@
 &spi2 {
 	// Override cs-gpios: index [1] changes to ACTIVE_HIGH for Sharp SCS
 	cs-gpios =
-		<&tca6408 4 GPIO_ACTIVE_LOW>,   // [0] LR_CS  (unchanged)
-		<&gpio0 10 GPIO_ACTIVE_HIGH>,   // [1] SCS    — Sharp ACTIVE HIGH
-		<&gpio0 14 GPIO_ACTIVE_LOW>,    // [2] SD_CS  (unchanged)
-		<&tca6408 1 GPIO_ACTIVE_LOW>;   // [3] CC_CS  (unchanged)
-
-	ls027b7dh01 {
+                <&tca6408 6 GPIO_ACTIVE_LOW>,   // [0] LR_CS  (unchanged, TCA6408 P6)
+                <&gpio0 10 GPIO_ACTIVE_HIGH>,   // [1] SCS    — Sharp ACTIVE HIGH
+                <&gpio0 14 GPIO_ACTIVE_LOW>,    // [2] SD_CS  (unchanged)
+                <&tca6408 3 GPIO_ACTIVE_LOW>;   // [3] CC_CS  (unchanged, TCA6408 P3)
 		status = "okay";
 	};
 };

@@ -10,7 +10,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
 #include <zephyr/drivers/display.h>
-#include <zephyr/drivers/gpio.h>
+#include <zephyr/drivers/pwm.h>
 #include <zephyr/logging/log.h>
 #include "../platform_hal.h"
 
@@ -22,11 +22,14 @@ static const struct device *display_dev = NULL;
 /* Display capabilities */
 static struct display_capabilities display_caps = {0};
 
-/* Backlight GPIO - GPIO3 on ESP32-S3 */
-#define BACKLIGHT_GPIO_NODE DT_NODELABEL(gpio0)
-#define BACKLIGHT_GPIO_PIN  3
+/* Backlight PWM — driven from DT alias "pwm-backlight0" / backlight node.
+ * On AkiraConsole Prod: LEDC CH0 on GPIO46 → AP2502 EN. */
+#define BACKLIGHT_NODE DT_ALIAS(pwm_backlight0)
+#define BL_PWM_NODE    DT_CHILD(BACKLIGHT_NODE, bl_pwm)
 
-static const struct device *backlight_gpio_dev = NULL;
+#if DT_NODE_EXISTS(BACKLIGHT_NODE)
+static const struct pwm_dt_spec bl_pwm = PWM_DT_SPEC_GET(BL_PWM_NODE);
+#endif
 
 /* Display reset is handled by the ST7789V driver via device tree reset-gpios.
  * Do not manually control GPIO15 (RESET) - driver manages hardware reset timing. */
@@ -47,12 +50,15 @@ int akira_display_hal_init(void)
         return -ENODEV;
     }
 
-    /* Enable backlight */
-    backlight_gpio_dev = DEVICE_DT_GET(BACKLIGHT_GPIO_NODE);
-    if (device_is_ready(backlight_gpio_dev)) {
-        gpio_pin_configure(backlight_gpio_dev, BACKLIGHT_GPIO_PIN, GPIO_OUTPUT_ACTIVE);
-        gpio_pin_set(backlight_gpio_dev, BACKLIGHT_GPIO_PIN, 1);
+    /* Enable backlight at full brightness */
+#if DT_NODE_EXISTS(BACKLIGHT_NODE)
+    if (pwm_is_ready_dt(&bl_pwm)) {
+        int bl_ret = pwm_set_dt(&bl_pwm, bl_pwm.period, bl_pwm.period); /* 100% duty */
+        LOG_INF("Backlight PWM set: period=%u ret=%d", bl_pwm.period, bl_ret);
+    } else {
+        LOG_WRN("Backlight PWM not ready");
     }
+#endif
 
     /* Get display capabilities and store them */
     display_get_capabilities(display_dev, &display_caps);
@@ -73,6 +79,7 @@ int akira_display_hal_init(void)
         LOG_ERR("Failed to enable display: %d", ret);
         return ret;
     }
+    LOG_INF("Display blanking off OK");
 
     return 0;
 
@@ -112,6 +119,8 @@ void akira_display_hal_flush(void)
     int ret = display_write(display_dev, 0, 0, &desc, fb);
     if (ret < 0) {
         LOG_ERR("Display write failed: %d", ret);
+    } else {
+        LOG_INF("Display write OK (%d bytes, first px=0x%04x)", desc.buf_size, fb[0]);
     }
 #endif
 }
@@ -145,9 +154,12 @@ int akira_display_hal_get_capabilities(struct display_capabilities *caps)
  */
 void akira_display_hal_set_brightness(uint8_t brightness)
 {
-    if (backlight_gpio_dev && device_is_ready(backlight_gpio_dev)) {
-        gpio_pin_set(backlight_gpio_dev, BACKLIGHT_GPIO_PIN, (brightness > 0) ? 1 : 0);
+#if DT_NODE_EXISTS(BACKLIGHT_NODE)
+    if (pwm_is_ready_dt(&bl_pwm)) {
+        uint32_t pulse = (uint32_t)bl_pwm.period * brightness / 255;
+        pwm_set_dt(&bl_pwm, bl_pwm.period, pulse);
     }
+#endif
 }
 
 /**
@@ -205,15 +217,19 @@ void akira_display_hal_set_blank(bool blank)
     if (!display_dev) return;
     if (blank) {
         /* Backlight off first, then panel blank */
-        if (backlight_gpio_dev && device_is_ready(backlight_gpio_dev)) {
-            gpio_pin_set(backlight_gpio_dev, BACKLIGHT_GPIO_PIN, 0);
+#if DT_NODE_EXISTS(BACKLIGHT_NODE)
+        if (pwm_is_ready_dt(&bl_pwm)) {
+            pwm_set_dt(&bl_pwm, bl_pwm.period, 0); /* 0% duty = off */
         }
+#endif
         display_blanking_on(display_dev);
     } else {
         display_blanking_off(display_dev);
-        if (backlight_gpio_dev && device_is_ready(backlight_gpio_dev)) {
-            gpio_pin_set(backlight_gpio_dev, BACKLIGHT_GPIO_PIN, 1);
+#if DT_NODE_EXISTS(BACKLIGHT_NODE)
+        if (pwm_is_ready_dt(&bl_pwm)) {
+            pwm_set_dt(&bl_pwm, bl_pwm.period, bl_pwm.period); /* 100% */
         }
+#endif
     }
 #endif
 }

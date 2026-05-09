@@ -109,13 +109,13 @@
 	// =========================================================================
 	// Brightness wheel (RV1 = RK10J12R0A0B) + backlight (AP2502)
 	//
-	// Hardware circuit on GPIO48:
+	// Hardware circuit on GPIO46:
 	//   D2/D3 (BAT54J) + RV1 (10 kΩ rheostat, pin 1 ↔ 5) + C67 (10 nF)
 	//   form a relaxation oscillator: f ≈ 9 kHz, duty cycle = pot position.
-	//   → U5B → U5A (74LVC2G14 Schmitt triggers) → R63 → GPIO48 (INPUT)
+	//   → U5B → U5A (74LVC2G14 Schmitt triggers) → R63 → GPIO46 (INPUT)
 	//                                                   └→ AP2502 EN (direct)
 	//
-	// Two modes for GPIO48 (pinctrl-0 selects):
+	// Two modes for GPIO46 (pinctrl-0 selects):
 	//   mcpwm0_default (default): MCPWM0 CAP0 input — reads duty cycle
 	//     → akira,brightness-wheel driver maps to 0-255 position value
 	//     → reported as INPUT_ABS_MISC axis (use like DPAD / joystick axis)
@@ -127,12 +127,15 @@
 	// =========================================================================
 	// Generic rotary dial input — reports INPUT_ABS_WHEEL (0-255).
 	// Apps read it the same way as buttons; no hardcoded "brightness" semantics.
+	// Disabled by default: GPIO46 is in LEDC output mode for backlight control.
+	// To enable: disable ledc0, enable mcpwm0, set status = "okay" here.
 	dial0: dial0 {
 		compatible    = "akira,pwm-dial";
 		pwms          = <&mcpwm0 6 0 PWM_POLARITY_NORMAL>; /* CAP0 = ch 6 */
 		akira,min-pct = <9>;   /* CW stop  → axis 0   */
 		akira,max-pct = <91>;  /* CCW stop → axis 255 */
 		akira,poll-ms = <50>;
+		status        = "disabled";
 	};
 
 	backlight: backlight {
@@ -152,7 +155,7 @@
 	// MIPI DBI SPI controller — ST7789V (J7, XF2M-4015-1A, 40-pin FFC)
 	//
 	// DC   = GPIO9  (TFT_DC)
-	// RST  = GPIO45 (TFT_RST, via R94 0Ω — default populated)
+	// RST  = TCA6408 P2 (TFT_RST via I2C GPIO expander U6, pin 4)
 	// CS   = SPI2 cs-gpios[1] = GPIO10 (TFT_CS, active low)
 	//
 	// Disable this node and enable akira_ili9341_prod (in overlay) for ILI9341.
@@ -162,7 +165,7 @@
 		compatible  = "zephyr,mipi-dbi-spi";
 		spi-dev     = <&spi2>;
 		dc-gpios    = <&gpio0 9  GPIO_ACTIVE_HIGH>; // TFT_DC  = GPIO9
-		reset-gpios = <&gpio1 13 GPIO_ACTIVE_LOW>;  // TFT_RST = GPIO45 (gpio1 pin 13)
+		reset-gpios = <&tca6408 2 GPIO_ACTIVE_LOW>;  // TFT_RST via TCA6408 P2 (U6 pin 4)
 		write-only;
 		#address-cells = <1>;
 		#size-cells    = <0>;
@@ -171,17 +174,18 @@
 		// ST7789V — 2.8" IPS TFT LCD, 320×240
 		// Target parts: HS280S030RX / YT280S030 / ZK028-240320FS02-C45
 		// Connector: J7 (XF2M-4015-1A, 40-pin FFC, 0.5mm top-contact)
-		// AP2502 (U22) 4-LED backlight driver; EN controlled by PWM (GPIO48)
+		// AP2502 (U22) 4-LED backlight driver; EN controlled by PWM (GPIO46)
 		// -----------------------------------------------------------------
 		st7789v_prod: st7789v@1 {
 			compatible         = "sitronix,st7789v";
 			reg                = <1>;           // SPI2 cs-gpios[1] = GPIO10
-			mipi-max-frequency = <60000000>;
-			width              = <320>;
-			height             = <240>;
-			x-offset           = <0>;
-			y-offset           = <0>;
-			inversion-off;
+				mipi-max-frequency = <10000000>;    // 10 MHz — safe for 40-pin FFC; raise after display confirmed working
+				ready-time-ms      = <120>;         // extra margin after reset
+				width              = <320>;
+				height             = <240>;
+				x-offset           = <0>;
+				y-offset           = <0>;
+				// inversion-off omitted → driver sends INVON (required for IPS panel)
 			vcom          = <0x19>;
 			gctrl         = <0x35>;
 			vrhs          = <0x12>;
@@ -244,31 +248,33 @@
 	// -------------------------------------------------------------------------
 	// TCA6408ARSV — 8-bit I2C GPIO expander (U6)
 	// 7-bit addr 0x21 (ADDR → GND; 8-bit WRITE=0x42, READ=0x43)
-	// ~INT → IO_INT → GPIO46 (gpio1 pin 14): fires on any input-pin change.
+	// ~INT → IO_INT → GPIO47 (gpio1 pin 15): fires on any input-pin change.
 	// ~RESET → +3.3V (always deasserted; hardware reset not used in firmware).
 	//
-	// Pin map (from MCU schematic, sheet 2/7):
-	//   P0 = OTG_EN   output — enables TPS61023 5V boost for USB OTG host
-	//   P1 = CC_CS    output — CC1121 SPI chip select (active low)
-	//   P2 = RF_RST   output — LR2021 + CC1121 combined reset (active low)
-	//   P3 = LR_BUSY  input  — LR2021 BUSY (high = chip busy / resetting)
-	//   P4 = LR_CS    output — LR2021 SPI chip select (active low)
-	//   P5 = SD_DET   input  — microSD card detect, DET_A (active low = present)
-	//   P6 = USB_INT  input  — FUSB302 INT_N (active low, routed via IO_INT)
-	//   P7 = (spare)
+	// Pin map (verified against KiCad netlist HWAkiraConsole.net):
+	//   P0 = USB_SEL  output — USB mux select (U21)
+	//   P1 = OTG_EN   output — enables TPS61023 5V boost for USB OTG host (Q7)
+	//   P2 = TFT_RST  output — ST7789V display reset (active low)
+	//   P3 = CC_CS    output — CC1121 SPI chip select (active low)
+	//   P4 = RF_RST   output — LR2021 + CC1121 combined reset (active low)
+	//   P5 = LR_BUSY  input  — LR2021 BUSY (high = chip busy / resetting)
+	//   P6 = LR_CS    output — LR2021 SPI chip select (active low)
+	//   P7 = SD_DET   input  — microSD card detect, DET_A (active low = present)
 	// -------------------------------------------------------------------------
 	tca6408: tca6408@21 {
-		// TCA6408ARSV is register-compatible with PCAL6408A for basic I/O.
-		// nxp,pcal6408a auto-selects GPIO_PCAL64XXA via DT_HAS_NXP_PCAL6408A_ENABLED.
-		// status = "disabled" here so MCUboot (which also gets this DTS) does NOT
-		// auto-compile the driver — MCUboot lacks kernel semaphores needed by I2C.
+		// TCA6408ARSV — only supports basic registers 0x00-0x03.
+		// Use nxp,pca9538 (gpio_pca_series driver) which is register-compatible
+		// and does NOT access extended PCAL registers (0x40-0x4F).
+		// nxp,pcal6408a (gpio_pcal64xxa driver) reads reg 0x46 during init,
+		// causing I2C failure and device init crash on TCA6408ARSV hardware.
+		// status = "disabled" here so MCUboot does NOT auto-compile the driver.
 		// The app overlay enables it under #ifndef CONFIG_MCUBOOT.
-		compatible    = "nxp,pcal6408a";
+		compatible    = "nxp,pca9538";
 		reg           = <0x21>;
 		gpio-controller;
 		#gpio-cells   = <2>;
 		ngpios        = <8>;
-		int-gpios     = <&gpio1 14 GPIO_ACTIVE_LOW>; // IO_INT = GPIO46
+		int-gpios     = <&gpio1 15 GPIO_ACTIVE_LOW>; // IO_INT = GPIO47 (gpio1 pin 15)
 		status        = "disabled"; // enabled in overlay for app build only
 	};
 
@@ -390,19 +396,19 @@
 	#size-cells    = <0>;
 
 	cs-gpios =
-		<&tca6408 4 GPIO_ACTIVE_LOW>,  // [0] LR_CS  (TCA6408 P4) — LR2021
+		<&tca6408 6 GPIO_ACTIVE_LOW>,  // [0] LR_CS  (TCA6408 P6) — LR2021
 		<&gpio0 10 GPIO_ACTIVE_LOW>,   // [1] TFT_CS (GPIO10)     — ST7789V/ILI9341
 		<&gpio0 14 GPIO_ACTIVE_LOW>,   // [2] SD_CS  (GPIO14)     — microSD
-		<&tca6408 1 GPIO_ACTIVE_LOW>;  // [3] CC_CS  (TCA6408 P1) — CC1121
+		<&tca6408 3 GPIO_ACTIVE_LOW>;  // [3] CC_CS  (TCA6408 P3) — CC1121
 
 	// -------------------------------------------------------------------------
 	// LR2021IMLTRT (Semtech LR1121 core) — multi-band LoRa/FSK transceiver (U12)
 	//
 	// SPI  → shared SPI2 bus (MOSI/CLK/MISO)
-	// CS   → TCA6408 P4 (LR_CS)         [cs-gpios index 0]
-	// RST  → TCA6408 P2 (RF_RST)        shared with CC1121
-	// BUSY → TCA6408 P3 (LR_BUSY)       input — high while chip is busy
-	// IRQ  → GPIO47     (LR_INT = DIO5) direct GPIO — 40kΩ internal pull-up
+	// CS   → TCA6408 P6 (LR_CS)         [cs-gpios index 0]
+	// RST  → TCA6408 P4 (RF_RST)        shared with CC1121
+	// BUSY → TCA6408 P5 (LR_BUSY)       input — high while chip is busy
+	// IRQ  → GPIO48     (LR_INT = DIO5) direct GPIO — 40kΩ internal pull-up
 	// VBAT → 3.3V rail  (1.8–3.7V OK; TX power derates below 2.2V)
 	//
 	// Primary:   868MHz LoRa (AkiraOS mesh network)
@@ -412,10 +418,10 @@
 		compatible        = "semtech,lr1121";
 		reg               = <0>;
 		spi-max-frequency = <10000000>;
-		cs-gpios          = <&tca6408 4 GPIO_ACTIVE_LOW>;   // LR_CS via P4
-		reset-gpios       = <&tca6408 2 GPIO_ACTIVE_LOW>;   // RF_RST via P2
-		busy-gpios        = <&tca6408 3 (GPIO_ACTIVE_HIGH | GPIO_PULL_DOWN)>; // LR_BUSY via P3
-		irq-gpios         = <&gpio1 15 GPIO_ACTIVE_HIGH>;   // LR_INT = GPIO47
+		cs-gpios          = <&tca6408 6 GPIO_ACTIVE_LOW>;   // LR_CS via P6
+		reset-gpios       = <&tca6408 4 GPIO_ACTIVE_LOW>;   // RF_RST via P4
+		busy-gpios        = <&tca6408 5 (GPIO_ACTIVE_HIGH | GPIO_PULL_DOWN)>; // LR_BUSY via P5
+		irq-gpios         = <&gpio1 16 GPIO_ACTIVE_HIGH>;   // LR_INT = GPIO48 (gpio1 pin 16)
 		status            = "okay";
 	};
 
@@ -439,8 +445,8 @@
 	// -------------------------------------------------------------------------
 	// CC1121RHB — high-performance Sub-GHz transceiver (U16)
 	// SPI  → shared SPI2 bus
-	// CS   → TCA6408 P1 (CC_CS)           [cs-gpios index 3]
-	// RST  → TCA6408 P2 (RF_RST)          shared with LR2021
+	// CS   → TCA6408 P3 (CC_CS)           [cs-gpios index 3]
+	// RST  → TCA6408 P4 (RF_RST)          shared with LR2021
 	// EXT_XOSC → GND (onboard 32MHz XOSC on XOSC_Q1/Q2 used)
 	// Covers 433MHz and 868/915MHz bands (swap one matching component for band).
 	// -------------------------------------------------------------------------
@@ -451,7 +457,7 @@
 		compatible              = "ti,cc1121";
 		reg                     = <3>;
 		spi-max-frequency       = <10000000>;
-		reset-gpios             = <&tca6408 2 GPIO_ACTIVE_LOW>; // RF_RST via P2
+		reset-gpios             = <&tca6408 4 GPIO_ACTIVE_LOW>; // RF_RST via P4
 		// AkiraConsole Production: 868 MHz Sub-GHz band
 		// Swap to <433000000> for 433 MHz (also swap antenna matching component)
 		// Swap to <915000000> for North American 915 MHz ISM band
@@ -535,18 +541,18 @@ zephyr_udc0: &usb_otg { status = "okay"; };
 	pinctrl-0    = <&mcpwm0_default>;
 	pinctrl-names = "default";
 	prescale     = <7>;
-	status       = "okay";
+	status       = "disabled"; /* GPIO46 used as LEDC output by default; swap here for wheel capture */
 };
 
 // =============================================================================
-// LEDC — optional software brightness override (alternate GPIO48 mode)
-// Disabled by default; enable by swapping pinctrl to ledc0_default and
-// uncommenting CONFIG_AKIRA_BACKLIGHT_SW_OVERRIDE=y in the board .conf.
+// LEDC — GPIO46 software brightness control (default enabled)
+// AP2502 EN is driven by GPIO46 LEDC CH0 output.
+// To switch to wheel capture mode: enable mcpwm0, disable ledc0, swap CONFIG.
 // =============================================================================
 &ledc0 {
 	pinctrl-0    = <&ledc0_default>;
 	pinctrl-names = "default";
-	status = "disabled";   /* default: GPIO48 in MCPWM capture mode */
+	status = "okay";
 	#address-cells = <1>;
 	#size-cells    = <0>;
 

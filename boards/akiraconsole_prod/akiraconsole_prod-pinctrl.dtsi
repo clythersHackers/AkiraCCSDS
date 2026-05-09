@@ -45,22 +45,23 @@
 	};
 
 	// -------------------------------------------------------------------------
-	// GPIO48 — brightness wheel (RV1, RK10J12R0A0B) signal path
+	// GPIO46 — brightness wheel (RV1, RK10J12R0A0B) + AP2502 backlight EN
 	//
 	// RC relaxation oscillator: D2/D3 (BAT54J) + RV1 + C67 (10 nF) →
-	// U5B → U5A (74LVC2G14 Schmitt trigger chain) → GPIO48 input.
+	// U5B → U5A (74LVC2G14 Schmitt trigger chain) → R63 → GPIO46.
+	// Same net also drives AP2502 (U22) EN directly (disp backlight).
 	// Oscillates at f = 1/(R×C) ≈ 9 kHz; duty cycle encodes pot position.
 	// Range: 9 % (wheel full CW, max resistance) to 91 % (full CCW).
 	//
 	// DEFAULT mode: MCPWM0 capture — read duty cycle = read wheel position.
 	// OVERRIDE mode: LEDC CH0 output — MCU drives brightness in software.
-	// (Switch by re-routing GPIO48 pinmux; cannot do both simultaneously.)
+	// (Switch by re-routing GPIO46 pinmux; cannot do both simultaneously.)
 	// -------------------------------------------------------------------------
 
 	// Default: MCPWM0 capture input — pot reading
 	mcpwm0_default: mcpwm0_default {
 		group1 {
-			pinmux = <MCPWM0_CAP0_GPIO48>;
+			pinmux = <MCPWM0_CAP0_GPIO46>;
 			input-enable;
 		};
 	};
@@ -68,7 +69,7 @@
 	// Override: LEDC CH0 output — software brightness control
 	ledc0_default: ledc0_default {
 		group1 {
-			pinmux = <LEDC_CH0_GPIO48>;
+			pinmux = <LEDC_CH0_GPIO46>;
 			output-enable;
 		};
 	};
