@@ -182,29 +182,43 @@ config AKIRA_SSD1306
       Enable SSD1306 128x64 OLED display driver.
       Used on Akira-Micro.
 
-choice AKIRA_TFT_DRIVER
-    prompt "TFT panel driver (choose one)"
-    depends on DISPLAY && SPI
-    default AKIRA_ST7789V_DRIVER
+# ── Display panel ───────────────────────────────────────────────────────────
+# Set CONFIG_DISPLAY=y plus ONE driver symbol in your board .conf:
+#
+#   CONFIG_DISPLAY=y
+#   CONFIG_ST7789V=y              # Sitronix ST7789V 240×320 TFT (MIPI-DBI SPI)
+#
+#   CONFIG_DISPLAY=y
+#   CONFIG_AKIRA_ILI9341_DRIVER=y # Ilitek ILI9341 240×320 TFT (Akira driver)
+#
+#   CONFIG_DISPLAY=y
+#   CONFIG_LS0XX=y                # Sharp LS027B7DH01 400×240 Memory LCD
+#
+# For ST7789V: CONFIG_MIPI_DBI and CONFIG_MIPI_DBI_SPI auto-enable from DTS.
+# For ILI9341: CMakeLists.txt appends boards/*_ili9341.overlay automatically.
+# For Sharp:   CMakeLists.txt appends boards/*_sharp.overlay automatically.
+# ────────────────────────────────────────────────────────────────────────────
 
-config AKIRA_ST7789V_DRIVER
-    bool "Use ST7789V (MIPI-DBI) driver"
-    help
-      Select the ST7789V MIPI-DBI based driver. This option does not
-      automatically select Zephyr's `ST7789V` or `MIPI_DBI_SPI` symbols to
-      avoid circular DT/Kconfig dependencies — enable those in `boards/*.conf`
-      or board overlays as needed.
-
+# AKIRA_ILI9341_DRIVER is the selector for Akira's custom ILI9341 driver
+# (no Zephyr upstream driver exists for this binding).
 config AKIRA_ILI9341_DRIVER
-    bool "Use ILI9341 SPI-based driver"
+    bool "ILI9341 TFT via Akira direct-SPI (240×320)"
+    depends on DISPLAY && SPI
     help
-      Select the ILI9341 driver. This driver provides an Akira-specific
-      `akira,ili9341` binding. It does not enable Zephyr's MIPI DBI stack.
+      Ilitek ILI9341 240×320 colour TFT using Akira's custom SPI driver
+      (akira,ili9341 binding).  CMakeLists.txt appends the board's
+      *_ili9341.overlay and compiles src/drivers/display/akira_ili9341.c.
 
-endchoice
+# Backward-compat aliases — C code and CMakeLists.txt reference these names.
+config AKIRA_ST7789V_DRIVER
+    bool
+    default y if ST7789V
+
+config AKIRA_SHARP_DISPLAY
+    bool
+    default y if LS0XX
 
 endmenu
-
 menu "PSRAM / External RAM options"
 
 config AKIRA_FONTS_IN_PSRAM
@@ -266,6 +280,60 @@ config AKIRA_CC1101
     help
       Enable TI CC1101 Sub-GHz transceiver driver.
       Supports 300-928MHz frequency range.
+
+config AKIRA_CC1121
+    bool "Enable CC1121 Sub-GHz driver (AkiraConsole Production)"
+    default n
+    depends on SPI && GPIO && AKIRA_RF_FRAMEWORK
+    help
+      Enable TI CC1121RHB high-performance Sub-GHz transceiver driver.
+      Covers 315/433/868/915 MHz bands, narrowband FSK/OOK.
+      Used on AkiraConsole Production via TCA6408 GPIO expander CS.
+
+endmenu
+
+menu "Peripherals"
+
+config CHARGER_BQ25601
+    bool "Enable BQ25601 Li-Ion charger driver"
+    default y if DT_HAS_TI_BQ25601_ENABLED
+    depends on I2C && CHARGER
+    help
+      Enable TI BQ25601RTW Li-Ion battery charger driver.
+      Implements the Zephyr charger API.
+      Reports charge status, VBUS presence, faults.
+      Allows setting charge current (0–3000 mA) and voltage (3840–4608 mV).
+
+
+config FUEL_GAUGE_BQ28Z610
+    bool "Enable BQ28Z610 fuel gauge driver"
+    default y if DT_HAS_TI_BQ28Z610_ENABLED
+    depends on I2C && FUEL_GAUGE
+    help
+      Enable TI BQ28Z610DRZ 1-cell Li-Ion fuel gauge + protection driver.
+      Implements the Zephyr fuel_gauge API over I2C (SBS-compatible registers).
+      Reports SoC, voltage, current, temperature, remaining/full capacity,
+      time-to-empty, and cycle count.
+config AKIRA_PWM_DIAL
+    bool "Enable generic PWM-dial rotary input driver"
+    default y if DT_HAS_AKIRA_PWM_DIAL_ENABLED
+    depends on PWM && INPUT
+    help
+      Enable the akira,pwm-dial driver.  Reads the duty cycle of a
+      potentiometer-based RC oscillator via MCPWM capture and reports
+      INPUT_ABS_WHEEL (0-255) into the Zephyr input subsystem.
+      On AkiraConsole Production: RK10J12R0A0B (RV1) on GPIO48.
+
+config AKIRA_ST25DV
+    bool "Enable ST25DV64K NFC tag driver"
+    default y if DT_HAS_ST_ST25DV64K_ENABLED
+    depends on I2C
+    help
+      Enable STMicroelectronics ST25DV64K Dynamic NFC/RFID tag driver.
+      Provides I2C access to the 64 Kbit EEPROM user memory and system
+      configuration registers. GPO interrupt for RF field / write events.
+      RF operations (ISO 15693) happen autonomously when an NFC reader
+      is present.
 
 endmenu
 
@@ -562,6 +630,15 @@ config AKIRA_USB_HID
     help
       Enable HID over USB.
 
+config AKIRA_HID_APP_HANDLER
+    bool "Enable USB HID app command handler (WebHID protocol)"
+    default y
+    depends on AKIRA_USB_HID && AKIRA_APP_MANAGER
+    help
+      Enables the AkiraOS WebHID command dispatcher on USB HID Report ID 3.
+      Allows the AkiraApp web UI to manage apps and device state over USB
+      without requiring a WiFi connection.
+
 config AKIRA_HID_SIM
     bool "Enable HID simulation (for testing)"
     default y
@@ -570,11 +647,35 @@ config AKIRA_HID_SIM
       Enable HID simulation transport for native_sim testing.
       Logs HID events instead of sending to real hardware.
 
+config AKIRA_MDNS
+    bool "Enable mDNS/DNS-SD service advertisement"
+    default y
+    depends on AKIRA_HTTP_SERVER && NET_IPV4
+    select MDNS_RESPONDER
+    select DNS_SD
+    select NET_MGMT
+    help
+      Advertises the device on the local network as:
+        {AKIRA_DEVICE_NAME}._akiraos._tcp.local
+        {AKIRA_DEVICE_NAME}._http._tcp.local
+      The device is reachable via http://{NET_HOSTNAME}.local:8080/.
+      Requires CONFIG_MDNS_RESPONDER=y and CONFIG_DNS_SD=y in the
+      board-specific .conf file.
+
 config AKIRA_HTTP_SERVER
     bool "Enable HTTP server"
     default y
     help
       Enable standalone HTTP server for web interface and APIs.
+
+config AKIRA_EMBEDDED_WEB
+    bool "Serve embedded web UI from HTTP server"
+    default n
+    depends on AKIRA_HTTP_SERVER
+    help
+      When enabled, the HTTP server serves a built-in web application from
+      flash (compiled-in HTML/JS assets). Disable to save flash space and
+      use only the REST API endpoints (e.g. with akira-cli).
 
 config AKIRA_HTTP_WEBSOCKET
     bool "Enable WebSocket support"
@@ -608,14 +709,40 @@ config AKIRA_HTTP_UPLOAD_TOKEN
       Clients must send: Authorization: Bearer <token>
       An empty string disables token checking (not recommended for production).
 
-config AKIRA_EMBEDDED_WEB
-    bool "Enable embedded HTML Web UI"
+config AKIRA_HTTP_DEV_UPLOAD
+    bool "Enable direct WASM app upload via HTTP"
     default n
+    depends on AKIRA_HTTP_SERVER && AKIRA_APP_MANAGER
+    help
+      Registers the POST /api/apps/install endpoint for direct WASM app
+      installation over HTTP. Disable in production builds and use
+      akira-cli or app.akiraos.dev instead. Always enforces
+      AKIRA_HTTP_UPLOAD_TOKEN when set.
+
+config AKIRA_HTTP_NO_AUTH
+    bool "Disable Bearer token authentication on HTTP endpoints"
+    default y
     depends on AKIRA_HTTP_SERVER
     help
-      Enable the embedded HTML web UI server hosted directly on the device.
-      Deprecated: replaced by the AkiraHub app store in Phase 2.
-      Disabling this saves memory; use akira-cli for device management.
+      When enabled, Bearer token checks are skipped on all HTTP endpoints.
+      Suitable for development or trusted local-network deployments.
+      For production, disable this and set AKIRA_HTTP_UPLOAD_TOKEN.
+
+config AKIRA_HTTP_SERVER_STACK_SIZE
+    int "HTTP server thread stack size (bytes)"
+    default 8192
+    range 4096 16384
+    depends on AKIRA_HTTP_SERVER
+    help
+      Stack size for the HTTP server listener thread.
+      Reduce to save DRAM on memory-constrained boards.
+
+config AKIRA_DEVICE_NAME
+    string "Device display name"
+    default "AkiraOS Device"
+    help
+      Human-readable device name returned by GET /api/v1/info and shown
+      in app.akiraos.dev connection panels.
 
 endmenu
 
@@ -964,6 +1091,69 @@ config AKIRA_OTA_MAX_CHUNK_SIZE
     help
       Maximum size of each OTA data chunk during transfer.
 
+config AKIRA_OTA_DATA_PIPE_SIZE
+    int "OTA data pipe buffer size (bytes)"
+    default 8192
+    range 2048 65536
+    depends on AKIRA_OTA
+    help
+      Size of the kernel pipe used to stream firmware bytes from the
+      HTTP/BT transport to the OTA worker thread.
+      Reduce to save DRAM on memory-constrained boards.
+
+config AKIRA_OTA_THREAD_STACK_SIZE
+    int "OTA worker thread stack size (bytes)"
+    default 4096
+    range 2048 16384
+    depends on AKIRA_OTA
+    help
+      Stack size for the dedicated OTA download worker thread.
+      Increase if OTA callbacks or hash verification overflow the stack.
+
+config AKIRA_OTA_DELTA
+    bool "Delta (binary-patch) OTA updates"
+    default n
+    depends on AKIRA_OTA
+    select ZLIB if ZLIB
+    help
+      Enable streaming bspatch-based delta OTA to reduce download size.
+      Requires CONFIG_ZLIB=y for the decompressor backend.
+
+config AKIRA_OTA_DELTA_CHUNK_SIZE
+    int "Delta patch input chunk size (bytes)"
+    default 4096
+    range 512 65536
+    depends on AKIRA_OTA_DELTA
+    help
+      Size of each compressed patch chunk fed to the delta decoder.
+
+config AKIRA_WASM_OTA
+    bool "WASM OTA native API"
+    default n
+    depends on AKIRA_OTA
+    help
+      Expose ota_check / ota_fetch_and_apply / ota_get_state / ota_confirm /
+      ota_rollback to WASM apps holding the AKIRA_CAP_OTA_TRIGGER capability.
+
+config AKIRA_BOOT_GUARD
+    bool "AkiraOS software boot counter / rollback guard"
+    default n
+    select AKIRA_OTA
+    select NVS
+    help
+      Track consecutive unconfirmed boots in NVS.  After
+      CONFIG_AKIRA_OTA_MAX_BOOT_FAILURES resets without confirmation,
+      trigger ota_request_rollback() automatically.
+
+config AKIRA_OTA_MAX_BOOT_FAILURES
+    int "Max consecutive unconfirmed boots before rollback"
+    default 3
+    range 1 10
+    depends on AKIRA_BOOT_GUARD
+    help
+      Number of consecutive boots without akira_boot_guard_confirm() before
+      the boot guard triggers OTA rollback.
+
 endmenu
 
 menu "Power Management"
@@ -1067,11 +1257,10 @@ config AKIRA_APP_SIGNING
 config AKIRA_ALLOW_UNSIGNED_APPS
     bool "Allow unsigned WASM apps (development only)"
     default n
-    depends on !AKIRA_APP_SIGNING
     help
-      Opt-in to allow installation and execution of unsigned WASM
-      apps when signature verification is disabled. Never enable
-      this in a production firmware build.
+      When set, unsigned apps are loaded with a warning instead of being
+      rejected. Set y only in development builds — never in production.
+      Checked directly in app_signing_v2.c; independent of AKIRA_APP_SIGNING.
 
 config AKIRA_SANDBOX
     bool "Enable runtime sandbox"
@@ -1502,6 +1691,16 @@ config AKIRA_OS_SHELL
       settings panel.  Mutually exclusive with CONFIG_AKIRA_BOOT_SHELL —
       disable that option when enabling this one.
 
+config AKIRA_OS_SHELL_SCREEN_W
+    int "OS shell screen width in pixels"
+    default 320
+    range 240 800
+    depends on AKIRA_OS_SHELL
+    help
+      Pixel width of the display used by the native OS shell.
+      Set to 400 for the Sharp LS027B7DH01 (AkiraConsole Production),
+      320 for the ST7789V / ILI9341 TFT variants.
+
 config AKIRA_HOME_BUTTON_GPIO
     int "GPIO pin number for the HOME / X button"
     default 17
@@ -1750,6 +1949,74 @@ config AKIRA_WASM_STORAGE_MAX_FDS
     help
       Global limit on open storage file descriptors across all running WASM
       apps.  Each descriptor holds a Zephyr struct fs_file_t (~48 bytes).
+
+config AKIRA_WASM_FS
+    bool "Export rich POSIX-like filesystem API to WASM"
+    default n
+    depends on AKIRA_WASM_API && FILE_SYSTEM
+    help
+      POSIX-like filesystem surface for WASM apps: fs_open/close/read/write/
+      seek/tell/stat/unlink/mkdir/readdir.  Apps are jailed to their sandbox.
+      Capabilities: "fs.read" (bit 26), "fs.write" (bit 27).
+      Complements AKIRA_WASM_STORAGE which provides the simpler surface.
+
+config AKIRA_WASM_FS_MAX_FDS
+    int "Maximum simultaneous open FS file descriptors"
+    default 8
+    range 2 32
+    depends on AKIRA_WASM_FS
+    help
+      Global limit on open file descriptors for the FS API (independent of
+      AKIRA_WASM_STORAGE_MAX_FDS).
+
+config AKIRA_WASM_CRYPTO
+    bool "Export cryptographic operations to WASM"
+    default n
+    depends on AKIRA_WASM_API
+    select TINYCRYPT
+    select TINYCRYPT_SHA256
+    select TINYCRYPT_AES
+    select TINYCRYPT_CBC_MODE
+    select TINYCRYPT_HMAC
+    help
+      Expose SHA-256, AES-256-CBC, HMAC-SHA256 and random_bytes to WASM.
+      Capability: "crypto" (bit 28).
+      Key material is zeroed in memory after each operation.
+
+config AKIRA_WASM_CRYPTO_MAX_INPUT
+    int "Maximum crypto input size (bytes)"
+    default 65536
+    range 256 131072
+    depends on AKIRA_WASM_CRYPTO
+    help
+      Maximum size of any single crypto operation input buffer.
+      Operations exceeding this limit return -EMSGSIZE.
+
+config AKIRA_WASM_RTC
+    bool "Export real-time clock API to WASM"
+    default n
+    depends on AKIRA_WASM_API
+    help
+      Expose rtc_get_unix_time / rtc_get_uptime_ms / rtc_set_unix_time /
+      rtc_set_alarm / rtc_alarm_fired to WASM.
+      Falls back to k_uptime_get() when no RTC hardware is present.
+      Capabilities: "rtc.read" (bit 29), "rtc.write" (bit 30).
+
+config AKIRA_TELEMETRY
+    bool "Structured JSON telemetry sink"
+    default n
+    help
+      Emit structured JSON event lines via the Zephyr log backend (UART/RTT).
+      When disabled all akira_telemetry_*() calls compile to empty inlines.
+
+config AKIRA_PANIC
+    bool "Panic handler with crash record storage"
+    default n
+    depends on NVS
+    help
+      Hooks k_sys_fatal_error_handler() to write a crash record (uptime,
+      reason, fault address, last app name) to an NVS partition.  On next
+      boot the record is logged at ERR level and erased.
 
 endmenu
 
