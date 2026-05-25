@@ -11,6 +11,7 @@
 #include "manifest_parser.h"
 #include "runtime_cache.h"
 #include <zephyr/kernel.h>
+#include <zephyr/init.h>
 #include <zephyr/logging/log.h>
 #include <string.h>
 #include <stdint.h>
@@ -64,11 +65,26 @@ akira_managed_app_t g_apps[AKIRA_MAX_WASM_INSTANCES];
  * Keeping stacks in SRAM avoids this entirely.  Only the WASM heap,
  * WASM binary, and other runtime data need to live in PSRAM.
  *
- * We allocate at runtime via k_thread_stack_alloc() (kernel SRAM heap) so the
- * stacks do not appear in the link-time .bss section and don't overflow DRAM.
+ * We allocate via k_thread_stack_alloc() in a SYS_INIT hook at APPLICATION
+ * level 1, before BT/WiFi/USB consume and fragment the SRAM heap. Stacks are
+ * held permanently and reused across app launches without re-allocation.
  * Size is tuned per-board via CONFIG_AKIRA_WASM_APP_STACK_SIZE.
  */
 static k_thread_stack_t *g_app_stacks[AKIRA_MAX_WASM_INSTANCES];
+
+/* Early SYS_INIT hook: allocates WASM thread stacks before BT/WiFi/USB init
+ * fragment the heap. APPLICATION level 1 runs before all driver-level init
+ * that would otherwise consume contiguous SRAM blocks. */
+static int wasm_stacks_early_alloc(void)
+{
+    for (int i = 0; i < AKIRA_MAX_WASM_INSTANCES; i++)
+    {
+        g_app_stacks[i] = k_thread_stack_alloc(CONFIG_AKIRA_WASM_APP_STACK_SIZE, 0);
+        /* Failure logged in akira_runtime_init() when the slot is first used. */
+    }
+    return 0;
+}
+SYS_INIT(wasm_stacks_early_alloc, APPLICATION, 1);
 static struct k_thread g_app_threads[AKIRA_MAX_WASM_INSTANCES];
 
 /* Per-slot deferred cleanup context.
@@ -98,12 +114,9 @@ static void slot_cleanup_work_fn(struct k_work *work)
      * a short timeout makes this robust against scheduling races. */
     k_thread_join(&g_app_threads[slot], K_MSEC(500));
 
-    if (g_app_stacks[slot])
-    {
-        k_thread_stack_free(g_app_stacks[slot]);
-        g_app_stacks[slot] = NULL;
-        LOG_DBG("Freed SRAM stack for slot %d (heap reclaimed)", slot);
-    }
+    /* Static stack — pre-allocated at init and held permanently; no heap to
+     * free. Slot is ready for reuse by the next app launch. */
+    LOG_DBG("SRAM stack for slot %d ready for reuse", slot);
 }
 
 /* Protects g_apps[] slot reservation in load_wasm() so concurrent calls
@@ -326,19 +339,19 @@ int akira_runtime_init(void)
     sandbox_init();
     app_signing_init();
 
-    /* WASM app thread stacks are allocated lazily in akira_runtime_start()
-     * and freed by the deferred slot_cleanup_work_fn after the thread exits.
-     * Eager allocation is intentionally avoided: the heap is partially consumed
-     * by BT/WiFi init by the time the runtime initializes, exhausting SRAM.
-     * With CONFIG_AKIRA_APP_MAX_RUNNING=2 at most 2 stacks exist at once
-     * (2 x 8 KB = 16 KB peak SRAM), which fits comfortably in the kernel heap.
-     * Initialize the per-slot cleanup work items here (once). */
+    /* WASM app thread stacks were pre-allocated by wasm_stacks_early_alloc()
+     * SYS_INIT hook (APPLICATION, 1) before BT/WiFi/USB could fragment the
+     * heap. Just initialize the per-slot deferred cleanup work items here. */
     for (int i = 0; i < AKIRA_MAX_WASM_INSTANCES; i++)
     {
         g_slot_cleanup[i].slot = i;
         k_work_init(&g_slot_cleanup[i].work, slot_cleanup_work_fn);
+        if (!g_app_stacks[i])
+        {
+            LOG_ERR("SRAM stack for slot %d missing (early alloc failed)", i);
+        }
     }
-    LOG_DBG("App thread stacks: lazy SRAM alloc per slot (%u B each, deferred free)",
+    LOG_DBG("App thread stacks: %u B each, pre-allocated at boot",
             CONFIG_AKIRA_WASM_APP_STACK_SIZE);
 
 #ifdef CONFIG_AKIRA_WASM_RUNTIME
@@ -802,28 +815,19 @@ int akira_runtime_start(int instance_id)
     }
 
 #ifdef CONFIG_AKIRA_WASM_RUNTIME
-    /* Defensive cleanup: if the deferred work item hasn't run yet (very
-     * unlikely race), drain it now.  Also ensures the previous thread is
-     * fully joined before we reuse g_app_threads[instance_id]. */
-    if (g_app_stacks[instance_id])
+    /* Defensive: if a previous thread for this slot hasn't been joined yet,
+     * wait for it now before reusing the pre-allocated stack. */
+    if (app->tid)
     {
         k_thread_join(&g_app_threads[instance_id], K_MSEC(500));
-        k_thread_stack_free(g_app_stacks[instance_id]);
-        g_app_stacks[instance_id] = NULL;
+        app->tid = NULL;
     }
 
-    /* Allocate the SRAM thread stack lazily — stacks must never be in PSRAM.
-     * On ESP32-S3, PSRAM and flash share SPI0; a flash operation inside
-     * lfs_file_open disables SPI0 cache, crashing any thread with a PSRAM
-     * stack.  k_thread_stack_alloc() draws from the SRAM kernel heap.
-     * We allocate here (not at init) so BT/WiFi heap consumption is already
-     * settled and the allocation succeeds reliably. */
-    g_app_stacks[instance_id] = k_thread_stack_alloc(
-        CONFIG_AKIRA_WASM_APP_STACK_SIZE, 0);
+    /* Stack was pre-allocated at init — always available, no allocation needed.
+     * Fail gracefully if init allocation failed (e.g. OOM at boot). */
     if (!g_app_stacks[instance_id])
     {
-        LOG_ERR("Failed to alloc SRAM stack for slot %d (%u B)",
-                instance_id, CONFIG_AKIRA_WASM_APP_STACK_SIZE);
+        LOG_ERR("SRAM stack for slot %d was never allocated (init failure)", instance_id);
         return -ENOMEM;
     }
 
@@ -858,8 +862,6 @@ int akira_runtime_start(int instance_id)
         k_thread_join(&g_app_threads[instance_id], K_MSEC(200));
         app->tid = NULL;
         app->used = false;
-        k_thread_stack_free(g_app_stacks[instance_id]);
-        g_app_stacks[instance_id] = NULL;
         return -ETIMEDOUT;
     }
 
@@ -868,8 +870,6 @@ int akira_runtime_start(int instance_id)
         LOG_ERR("App failed to start (slot %d)", instance_id);
         k_thread_join(&g_app_threads[instance_id], K_MSEC(500));
         app->tid = NULL;
-        k_thread_stack_free(g_app_stacks[instance_id]);
-        g_app_stacks[instance_id] = NULL;
         return -EIO;
     }
 
@@ -957,11 +957,6 @@ int akira_runtime_stop(int instance_id)
     {
         k_thread_join(&g_app_threads[instance_id], K_MSEC(2000));
         app->tid = NULL;
-        if (g_app_stacks[instance_id])
-        {
-            k_thread_stack_free(g_app_stacks[instance_id]);
-            g_app_stacks[instance_id] = NULL;
-        }
     }
 
     sandbox_audit_log(AUDIT_EVENT_APP_STOPPED, app->name, (uint32_t)instance_id);
