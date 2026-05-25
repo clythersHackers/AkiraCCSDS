@@ -1004,7 +1004,7 @@ static int settings_get(const char *key, char *value, size_t max_len)
         int entry_id = settings_get_id(key);
         if (entry_id < 0)
         {
-            LOG_WRN("Couldn't find key: %s", key);
+            LOG_DBG("Couldn't find key: %s", key);
             return entry_id;
         }
 
@@ -1075,7 +1075,7 @@ static int settings_delete(const char *key)
         int entry_id = settings_get_id(key);
         if (entry_id < 0)
         {
-            LOG_WRN("Couldn't find key: %s", key);
+            LOG_DBG("Couldn't find key: %s", key);
             return entry_id;
         }
 

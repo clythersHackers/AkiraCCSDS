@@ -51,7 +51,7 @@ static struct
     uint32_t received_bytes;
     uint32_t expected_crc;
     uint32_t running_crc;
-    uint8_t *buf;   /* heap buffer for incoming data */
+    uint8_t *buf; /* heap buffer for incoming data */
     bt_app_xfer_complete_cb_t callback;
 } g_xfer = {
     .state = BT_APP_XFER_IDLE,
@@ -293,6 +293,19 @@ static ssize_t rx_data_write(struct bt_conn *conn,
     return len;
 }
 
+/* Work handler that runs finalize_transfer on the system workqueue.
+ * This avoids a stack overflow on the BT RX WQ (2 KB) by executing
+ * the heavy install chain on the sys workqueue (4 KB). */
+static void finalize_work_handler(struct k_work *work)
+{
+    ARG_UNUSED(work);
+    k_mutex_lock(&xfer_mutex, K_FOREVER);
+    finalize_transfer();
+    k_mutex_unlock(&xfer_mutex);
+}
+
+static K_WORK_DEFINE(g_finalize_work, finalize_work_handler);
+
 static ssize_t control_write(struct bt_conn *conn,
                              const struct bt_gatt_attr *attr,
                              const void *buf, uint16_t len,
@@ -332,7 +345,7 @@ static ssize_t control_write(struct bt_conn *conn,
         break;
 
     case BT_APP_CMD_COMMIT:
-        finalize_transfer();
+        k_work_submit(&g_finalize_work);
         break;
 
     case BT_APP_CMD_STATUS:

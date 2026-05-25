@@ -144,6 +144,21 @@ int main(void)
     }
 #endif
 
+#if defined(CONFIG_AKIRA_USB_HID) && defined(CONFIG_AKIRA_HID)
+    /* Auto-enable USB HID so the device enumerates on the host at boot.
+     * USB transport was registered + finalized in usb_hid_transport_init();
+     * calling hid_manager_enable() here triggers usbd_enable() to start USB. */
+    hid_manager_set_transport(HID_TRANSPORT_USB);
+    if (hid_manager_enable() < 0)
+    {
+        LOG_WRN("USB HID auto-enable failed");
+    }
+    else
+    {
+        LOG_INF("USB HID enabled at boot");
+    }
+#endif
+
     /* Filesystem auto-initialized via SYS_INIT (see fs_manager.c) */
 
 #ifdef CONFIG_AKIRA_MODULE_RF

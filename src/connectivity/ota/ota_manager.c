@@ -64,7 +64,7 @@ K_MSGQ_DEFINE(ota_cmd_q, sizeof(struct ota_cmd), 4, 4);
  * Back-pressure: k_pipe_put blocks the transport thread when pipe is full,
  * preventing TCP/BLE/USB timeouts by keeping connections alive.
  */
-#define OTA_DATA_PIPE_SIZE 8192
+#define OTA_DATA_PIPE_SIZE CONFIG_AKIRA_OTA_DATA_PIPE_SIZE
 K_PIPE_DEFINE(ota_data_pipe, OTA_DATA_PIPE_SIZE, 4);
 
 /** Signaled by worker when CMD_FINALIZE or CMD_ABORT finishes */
