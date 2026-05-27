@@ -11,6 +11,7 @@
  * @copyright Copyright (c) 2026 PenEngineering S.R.L
  */
 
+#include <zephyr/kernel.h>
 #include "akira_platform_stubs.h"
 
 __weak void akira_on_app_installed(const char *name, int id)

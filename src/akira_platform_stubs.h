@@ -24,7 +24,7 @@ extern "C" {
  * @param name  App name string (NUL-terminated).
  * @param id    Numeric app ID assigned by the app manager.
  */
-__weak void akira_on_app_installed(const char *name, int id);
+void akira_on_app_installed(const char *name, int id);
 
 /**
  * @brief Called when a WASM application is successfully uninstalled.
@@ -33,14 +33,14 @@ __weak void akira_on_app_installed(const char *name, int id);
  *
  * @param name  App name string (NUL-terminated).
  */
-__weak void akira_on_app_uninstalled(const char *name);
+void akira_on_app_uninstalled(const char *name);
 
 /**
  * @brief Called when WiFi has an IPv4 address (DHCP done, DNS ready).
  *
  * Default: no-op. AkiraPlatform overrides to register/connect the hub.
  */
-__weak void akira_on_wifi_connected(void);
+void akira_on_wifi_connected(void);
 
 #ifdef __cplusplus
 }
