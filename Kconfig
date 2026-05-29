@@ -1297,67 +1297,6 @@ config AKIRA_WASM_STOP_TIMEOUT_MS
       Maximum time to wait for a WASM app thread to exit cleanly after
       wasm_runtime_terminate() is called. Thread is aborted on timeout.
 
-config AKIRA_BOOT_ANIMATION
-    bool "Enable boot logo animation"
-    default n
-    depends on AKIRA_DISPLAY
-    help
-      Play the three-phase star logo entrance animation on boot
-      (grow → slide + text → tagline).  Disable to skip straight
-      to the home screen.
-
-config AKIRA_BOOT_ANIM_BG_COLOR
-    hex "Boot animation background colour (RGB565)"
-    default 0x0000
-    depends on AKIRA_BOOT_ANIMATION
-    help
-      Background fill colour used during the boot animation,
-      expressed as a 16-bit RGB565 value.  Default 0x0000 = black.
-
-config AKIRA_BOOT_ANIM_TEXT_COLOR
-    hex "Boot animation text colour (RGB565)"
-    default 0xFFFF
-    depends on AKIRA_BOOT_ANIMATION
-    help
-      Foreground colour used for the "AKIRA CONSOLE" and tagline
-      text during the boot animation.  Default 0xFFFF = white.
-
-config AKIRA_BOOT_ANIM_GROW_FRAME_MS
-    int "Grow phase – milliseconds per frame"
-    default 2
-    range 1 50
-    depends on AKIRA_BOOT_ANIMATION
-    help
-      Delay between frames during Phase 1 (logo grows from a point
-      to full size).  Lower values make the animation faster.
-
-config AKIRA_BOOT_ANIM_SLIDE_FRAME_MS
-    int "Slide phase – milliseconds per frame"
-    default 4
-    range 1 50
-    depends on AKIRA_BOOT_ANIMATION
-    help
-      Delay between frames during Phase 2 (logo slides left while
-      "AKIRA CONSOLE" slides in from the right).
-
-config AKIRA_BOOT_ANIM_TAG_FRAME_MS
-    int "Tagline phase – milliseconds per frame"
-    default 4
-    range 1 50
-    depends on AKIRA_BOOT_ANIMATION
-    help
-      Delay between frames during Phase 3 ("RUNNING ON AKIRAOS"
-      slides up into place beneath "CONSOLE").
-
-config AKIRA_BOOT_DELAY_MS
-    int "Boot animation hold time (ms)"
-    default 200
-    range 0 10000
-    depends on AKIRA_BOOT_ANIMATION
-    help
-      How long to hold the final animation frame before the home
-      screen is shown.  Set to 0 to transition immediately.
-
 config AKIRA_SANDBOX_RATE_LIMITING
     bool "Enable syscall rate limiting"
     default y
