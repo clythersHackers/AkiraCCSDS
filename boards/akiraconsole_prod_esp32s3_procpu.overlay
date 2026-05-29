@@ -110,6 +110,10 @@
 				label = "hub_nvs";
 				reg   = <0x00488000 DT_SIZE_K(8)>;
 		};
+	};
+};
+
+/ {
 	chosen {
 		zephyr,settings-partition = &akira_settings_nvs_partition;
 	};
