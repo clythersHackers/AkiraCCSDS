@@ -355,7 +355,7 @@ static int handle_app_list_response(const cloud_message_t *msg, msg_source_t sou
     payload_app_entry_t *entries = (payload_app_entry_t *)(msg->payload + sizeof(uint16_t));
 
     /* Allocate result array */
-    app_catalog_entry_t *catalog = k_malloc(count * sizeof(app_catalog_entry_t));
+    app_catalog_entry_t *catalog = akira_malloc_buffer(count * sizeof(app_catalog_entry_t));
     if (!catalog && count > 0)
     {
         handler.catalog_req.callback(NULL, -1, handler.catalog_req.user_data);
@@ -377,7 +377,7 @@ static int handle_app_list_response(const cloud_message_t *msg, msg_source_t sou
 
     handler.catalog_req.callback(catalog, count, handler.catalog_req.user_data);
 
-    k_free(catalog);
+    akira_free_buffer(catalog);
     handler.catalog_req.pending = false;
 
     return 0;
