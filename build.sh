@@ -273,8 +273,14 @@ build_mcuboot() {
     # EXTRA_DTC_OVERLAY_FILE mirrors what sysbuild does automatically — it
     # ensures MCUboot's compiled-in partition layout matches the app's layout.
     local extra_cmake="-DBOARD_ROOT=$SCRIPT_DIR -DDTS_ROOT=$SCRIPT_DIR"
+    # Prefer a board-specific MCUboot overlay (${BOARD}.mcuboot.overlay) when
+    # present; otherwise fall back to the application overlay (${BOARD}.overlay).
+    local mcuboot_overlay="$SCRIPT_DIR/boards/${BOARD}.mcuboot.overlay"
     local board_overlay="$SCRIPT_DIR/boards/${BOARD}.overlay"
-    if [[ -f "$board_overlay" ]]; then
+    if [[ -f "$mcuboot_overlay" ]]; then
+        extra_cmake+=" -DEXTRA_DTC_OVERLAY_FILE=$mcuboot_overlay"
+        print_info "MCUboot overlay: $mcuboot_overlay"
+    elif [[ -f "$board_overlay" ]]; then
         extra_cmake+=" -DEXTRA_DTC_OVERLAY_FILE=$board_overlay"
         print_info "MCUboot overlay: $board_overlay"
     fi
