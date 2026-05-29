@@ -21,6 +21,10 @@ jobs:
             name: board-akiraconsole
             fetch_espressif_blobs: true
             zephyr_toolchain: xtensa-espressif_esp32s3_zephyr-elf
+          - board: akiraconsole_prod/esp32s3/procpu
+            name: board-akiraconsole_prod
+            fetch_espressif_blobs: true
+            zephyr_toolchain: xtensa-espressif_esp32s3_zephyr-elf
           - board: b_u585i_iot02a
             name: board-b_u585i_iot02a
             fetch_espressif_blobs: false
