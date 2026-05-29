@@ -9,6 +9,7 @@
 #include "cloud_client.h"
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
+#include "lib/mem_helper.h"
 #include <string.h>
 
 /* Include app management */
@@ -148,7 +149,7 @@ static void complete_download(struct download_context *ctx, bool success, const 
     /* Cleanup */
     if (ctx->buffer)
     {
-        k_free(ctx->buffer);
+        akira_free_buffer(ctx->buffer);
         ctx->buffer = NULL;
     }
     ctx->active = false;
@@ -197,9 +198,10 @@ static int handle_app_metadata(const cloud_message_t *msg, msg_source_t source)
     /* Allocate buffer */
     if (ctx->buffer)
     {
-        k_free(ctx->buffer);
+        akira_free_buffer(ctx->buffer);
+        ctx->buffer = NULL;
     }
-    ctx->buffer = k_malloc(meta->size);
+    ctx->buffer = akira_malloc_buffer(meta->size);
     if (!ctx->buffer)
     {
         k_mutex_unlock(&handler.mutex);
