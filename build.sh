@@ -285,10 +285,53 @@ build_mcuboot() {
         print_info "MCUboot overlay: $board_overlay"
     fi
 
+    # Pass board-specific MCUboot Kconfig overrides when present.
+    # These live in AkiraOS/boards/<board>.mcuboot.conf so the mcuboot repo
+    # stays at its upstream manifest-rev without local commits.
+    local mcuboot_conf="$SCRIPT_DIR/boards/${BOARD}.mcuboot.conf"
+    if [[ -f "$mcuboot_conf" ]]; then
+        extra_cmake+=" -DEXTRA_CONF_FILE=$mcuboot_conf"
+        print_info "MCUboot conf: $mcuboot_conf"
+    fi
+
+    # Some ESP32 SoCs require a patched MCUboot linker script to avoid IRAM
+    # overflow (ESP32-C6) or RISC-V RVC relocation errors (ESP32-H2).  Zephyr's
+    # SOC_LINKER_SCRIPT cmake variable is forced via CACHE INTERNAL and cannot
+    # be overridden from the command line, so we temporarily replace the file in
+    # the Zephyr source tree and restore it via git after the build.
+    local _linker_patched_soc=""
+    _apply_mcuboot_linker_patch() {
+        local soc="$1"
+        local akira_ld="$SCRIPT_DIR/zephyr/soc/espressif/${soc}/mcuboot.ld"
+        local zephyr_ld="$WORKSPACE_ROOT/zephyr/soc/espressif/${soc}/mcuboot.ld"
+        if [[ -f "$akira_ld" && -f "$zephyr_ld" ]]; then
+            cp "$akira_ld" "$zephyr_ld"
+            _linker_patched_soc="$soc"
+            print_info "Applied MCUboot linker patch for $soc"
+        fi
+    }
+    _restore_mcuboot_linker_patch() {
+        if [[ -n "$_linker_patched_soc" ]]; then
+            git -C "$WORKSPACE_ROOT/zephyr" checkout -- \
+                "soc/espressif/${_linker_patched_soc}/mcuboot.ld" 2>/dev/null || true
+            print_info "Restored MCUboot linker for ${_linker_patched_soc}"
+        fi
+    }
+
+    case "$zephyr_board" in
+        *esp32c6*) _apply_mcuboot_linker_patch "esp32c6" ;;
+        *esp32h2*) _apply_mcuboot_linker_patch "esp32h2" ;;
+    esac
+
     cd "$WORKSPACE_ROOT"
 
-    if west build --pristine -b "$zephyr_board" bootloader/mcuboot/boot/zephyr -d "$build_dir" \
-        -- $extra_cmake; then
+    local build_rc=0
+    west build --pristine -b "$zephyr_board" bootloader/mcuboot/boot/zephyr -d "$build_dir" \
+        -- $extra_cmake || build_rc=$?
+
+    _restore_mcuboot_linker_patch
+
+    if [[ $build_rc -eq 0 ]]; then
         print_success "MCUboot build complete!"
         print_info "Binary: $build_dir/zephyr/zephyr.bin"
     else
