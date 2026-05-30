@@ -2,7 +2,7 @@
  * @file akira_platform_stubs.c
  * @brief Weak no-op stubs for AkiraPlatform extension hooks.
  *
- * AkiraPlatform (or any other overlay module) replaces these with strong
+ * AkiraPlatform replaces these with strong
  * implementations at link time. When building without a platform overlay
  * these no-ops are used so the rest of AkiraOS compiles and links cleanly.
  *

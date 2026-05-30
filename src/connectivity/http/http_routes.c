@@ -128,6 +128,8 @@ static bool query_param(const char *query, const char *key,
 /*===========================================================================*/
 
 static char upload_resp_buf[128] = "{\"status\":\"ok\"}";
+/* Single scratch buffer shared by all route handlers (HTTP is single-threaded). */
+static char s_route_buf[1024];
 
 static void __attribute__((unused)) set_upload_resp(const char *fmt, ...)
 {
@@ -145,8 +147,7 @@ static void __attribute__((unused)) set_upload_resp(const char *fmt, ...)
 static int route_info(const http_request_t *req, http_response_t *res,
                       void *user_data)
 {
-    static char buf[256];
-    snprintf(buf, sizeof(buf),
+    snprintf(s_route_buf, sizeof(s_route_buf),
              "{\"name\":\"%s\","
              "\"fw_version\":\"" AKIRA_VERSION_STRING "\","
              "\"chip\":\"%s\"}",
@@ -155,7 +156,7 @@ static int route_info(const http_request_t *req, http_response_t *res,
 
     res->status_code = 200;
     res->content_type = HTTP_CONTENT_JSON;
-    res->body = buf;
+    res->body = s_route_buf;
     return 0;
 }
 
@@ -166,7 +167,6 @@ static int route_info(const http_request_t *req, http_response_t *res,
 static int route_status(const http_request_t *req, http_response_t *res,
                         void *user_data)
 {
-    static char buf[256];
     uint32_t storage_free = 0;
     uint32_t storage_total = 0;
 
@@ -179,14 +179,14 @@ static int route_status(const http_request_t *req, http_response_t *res,
     }
 #endif
 
-    snprintf(buf, sizeof(buf),
+    snprintf(s_route_buf, sizeof(s_route_buf),
              "{\"storage_free\":%u,\"storage_total\":%u,\"uptime_s\":%u}",
              storage_free, storage_total,
              (uint32_t)(k_uptime_get() / 1000U));
 
     res->status_code = 200;
     res->content_type = HTTP_CONTENT_JSON;
-    res->body = buf;
+    res->body = s_route_buf;
     return 0;
 }
 
@@ -197,8 +197,6 @@ static int route_status(const http_request_t *req, http_response_t *res,
 static int route_apps_list(const http_request_t *req, http_response_t *res,
                            void *user_data)
 {
-    static char buf[1024];
-
 #ifdef CONFIG_AKIRA_APP_MANAGER
     app_info_t apps[16];
     int count = app_manager_list(apps, ARRAY_SIZE(apps));
@@ -208,8 +206,8 @@ static int route_apps_list(const http_request_t *req, http_response_t *res,
     }
 
     int pos = 0;
-    pos += snprintf(buf + pos, sizeof(buf) - pos, "[");
-    for (int i = 0; i < count && pos < (int)sizeof(buf) - 4; i++)
+    pos += snprintf(s_route_buf + pos, sizeof(s_route_buf) - pos, "[");
+    for (int i = 0; i < count && pos < (int)sizeof(s_route_buf) - 4; i++)
     {
         const char *state_str;
         switch (apps[i].state)
@@ -233,21 +231,21 @@ static int route_apps_list(const http_request_t *req, http_response_t *res,
             state_str = "new";
             break;
         }
-        pos += snprintf(buf + pos, sizeof(buf) - pos,
+        pos += snprintf(s_route_buf + pos, sizeof(s_route_buf) - pos,
                         "%s{\"id\":%d,\"name\":\"%s\",\"version\":\"%s\","
                         "\"state\":\"%s\",\"size\":%u,\"crashes\":%u}",
                         i > 0 ? "," : "",
                         apps[i].id, apps[i].name, apps[i].version,
                         state_str, apps[i].size, apps[i].crash_count);
     }
-    snprintf(buf + pos, sizeof(buf) - pos, "]");
+    snprintf(s_route_buf + pos, sizeof(s_route_buf) - pos, "]");
 #else
-    strncpy(buf, "[]", sizeof(buf));
+    strncpy(s_route_buf, "[]", sizeof(s_route_buf));
 #endif
 
     res->status_code = 200;
     res->content_type = HTTP_CONTENT_JSON;
-    res->body = buf;
+    res->body = s_route_buf;
     return 0;
 }
 
@@ -272,8 +270,6 @@ static int route_logs(const http_request_t *req, http_response_t *res,
 static int route_app_start(const http_request_t *req, http_response_t *res,
                            void *user_data)
 {
-    static char resp[80];
-
 #ifdef CONFIG_AKIRA_APP_MANAGER
     char name[APP_NAME_MAX_LEN] = {0};
     if (!query_param(req->query, "name", name, sizeof(name)) || name[0] == '\0')
@@ -286,21 +282,21 @@ static int route_app_start(const http_request_t *req, http_response_t *res,
     int ret = app_manager_start(name);
     if (ret < 0)
     {
-        snprintf(resp, sizeof(resp), "{\"error\":\"start failed: %d\"}", ret);
+        snprintf(s_route_buf, sizeof(s_route_buf), "{\"error\":\"start failed: %d\"}", ret);
         res->status_code = 500;
     }
     else
     {
-        snprintf(resp, sizeof(resp), "{\"status\":\"started\",\"name\":\"%s\"}", name);
+        snprintf(s_route_buf, sizeof(s_route_buf), "{\"status\":\"started\",\"name\":\"%s\"}", name);
         res->status_code = 200;
     }
 #else
-    strncpy(resp, "{\"error\":\"app manager disabled\"}", sizeof(resp));
+    strncpy(s_route_buf, "{\"error\":\"app manager disabled\"}", sizeof(s_route_buf));
     res->status_code = 501;
 #endif
 
     res->content_type = HTTP_CONTENT_JSON;
-    res->body = resp;
+    res->body = s_route_buf;
     return 0;
 }
 
@@ -311,8 +307,6 @@ static int route_app_start(const http_request_t *req, http_response_t *res,
 static int route_app_stop(const http_request_t *req, http_response_t *res,
                           void *user_data)
 {
-    static char resp[80];
-
 #ifdef CONFIG_AKIRA_APP_MANAGER
     char name[APP_NAME_MAX_LEN] = {0};
     if (!query_param(req->query, "name", name, sizeof(name)) || name[0] == '\0')
@@ -325,21 +319,21 @@ static int route_app_stop(const http_request_t *req, http_response_t *res,
     int ret = app_manager_stop(name);
     if (ret < 0)
     {
-        snprintf(resp, sizeof(resp), "{\"error\":\"stop failed: %d\"}", ret);
+        snprintf(s_route_buf, sizeof(s_route_buf), "{\"error\":\"stop failed: %d\"}", ret);
         res->status_code = 500;
     }
     else
     {
-        snprintf(resp, sizeof(resp), "{\"status\":\"stopped\",\"name\":\"%s\"}", name);
+        snprintf(s_route_buf, sizeof(s_route_buf), "{\"status\":\"stopped\",\"name\":\"%s\"}", name);
         res->status_code = 200;
     }
 #else
-    strncpy(resp, "{\"error\":\"app manager disabled\"}", sizeof(resp));
+    strncpy(s_route_buf, "{\"error\":\"app manager disabled\"}", sizeof(s_route_buf));
     res->status_code = 501;
 #endif
 
     res->content_type = HTTP_CONTENT_JSON;
-    res->body = resp;
+    res->body = s_route_buf;
     return 0;
 }
 
@@ -350,8 +344,6 @@ static int route_app_stop(const http_request_t *req, http_response_t *res,
 static int route_app_delete(const http_request_t *req, http_response_t *res,
                             void *user_data)
 {
-    static char resp[80];
-
 #ifdef CONFIG_AKIRA_APP_MANAGER
     char name[APP_NAME_MAX_LEN] = {0};
     if (!query_param(req->query, "name", name, sizeof(name)) || name[0] == '\0')
@@ -364,21 +356,21 @@ static int route_app_delete(const http_request_t *req, http_response_t *res,
     int ret = app_manager_uninstall(name);
     if (ret < 0)
     {
-        snprintf(resp, sizeof(resp), "{\"error\":\"uninstall failed: %d\"}", ret);
+        snprintf(s_route_buf, sizeof(s_route_buf), "{\"error\":\"uninstall failed: %d\"}", ret);
         res->status_code = 500;
     }
     else
     {
-        snprintf(resp, sizeof(resp), "{\"status\":\"deleted\",\"name\":\"%s\"}", name);
+        snprintf(s_route_buf, sizeof(s_route_buf), "{\"status\":\"deleted\",\"name\":\"%s\"}", name);
         res->status_code = 200;
     }
 #else
-    strncpy(resp, "{\"error\":\"app manager disabled\"}", sizeof(resp));
+    strncpy(s_route_buf, "{\"error\":\"app manager disabled\"}", sizeof(s_route_buf));
     res->status_code = 501;
 #endif
 
     res->content_type = HTTP_CONTENT_JSON;
-    res->body = resp;
+    res->body = s_route_buf;
     return 0;
 }
 
@@ -399,7 +391,6 @@ static int route_app_install(const http_request_t *req, http_response_t *res,
     res->body = "{\"error\":\"app manager disabled\"}";
     return 0;
 #else
-    static char resp[128];
 
     if (!route_check_auth(req))
     {
@@ -428,11 +419,11 @@ static int route_app_install(const http_request_t *req, http_response_t *res,
                                             APP_SOURCE_HTTP);
     if (session < 0)
     {
-        snprintf(resp, sizeof(resp),
+        snprintf(s_route_buf, sizeof(s_route_buf),
                  "{\"error\":\"install_begin failed: %d\"}", session);
         res->status_code = 500;
         res->content_type = HTTP_CONTENT_JSON;
-        res->body = resp;
+        res->body = s_route_buf;
         return 0;
     }
 
@@ -445,11 +436,11 @@ static int route_app_install(const http_request_t *req, http_response_t *res,
         if (ret < 0)
         {
             app_manager_install_abort(session);
-            snprintf(resp, sizeof(resp),
+            snprintf(s_route_buf, sizeof(s_route_buf),
                      "{\"error\":\"chunk write failed: %d\"}", ret);
             res->status_code = 500;
             res->content_type = HTTP_CONTENT_JSON;
-            res->body = resp;
+            res->body = s_route_buf;
             return 0;
         }
         total_received = req->body_len;
@@ -495,11 +486,11 @@ static int route_app_install(const http_request_t *req, http_response_t *res,
         {
             akira_buf_unref(buf);
             app_manager_install_abort(session);
-            snprintf(resp, sizeof(resp),
+            snprintf(s_route_buf, sizeof(s_route_buf),
                      "{\"error\":\"chunk write failed: %d\"}", ret);
             res->status_code = 500;
             res->content_type = HTTP_CONTENT_JSON;
-            res->body = resp;
+            res->body = s_route_buf;
             return 0;
         }
         total_received += got;
@@ -511,20 +502,20 @@ static int route_app_install(const http_request_t *req, http_response_t *res,
     int app_id = app_manager_install_end(session, NULL);
     if (app_id < 0)
     {
-        snprintf(resp, sizeof(resp),
+        snprintf(s_route_buf, sizeof(s_route_buf),
                  "{\"error\":\"install_end failed: %d\"}", app_id);
         res->status_code = 500;
     }
     else
     {
-        snprintf(resp, sizeof(resp),
+        snprintf(s_route_buf, sizeof(s_route_buf),
                  "{\"status\":\"installed\",\"name\":\"%s\",\"id\":%d}",
                  app_name, app_id);
         res->status_code = 200;
     }
 
     res->content_type = HTTP_CONTENT_JSON;
-    res->body = resp;
+    res->body = s_route_buf;
     return 0;
 #endif /* CONFIG_AKIRA_APP_MANAGER */
 }
