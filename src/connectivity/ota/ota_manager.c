@@ -94,6 +94,7 @@ static struct
 } ota_status __aligned(4);
 
 static K_MUTEX_DEFINE(ota_mutex);
+static K_MUTEX_DEFINE(ota_buf_mutex); /* protects write_buffer + buffer_pos */
 
 /* Flash management */
 static const struct flash_area *secondary_fa = NULL;
@@ -222,18 +223,15 @@ static void set_error(enum ota_result error, const char *message)
     LOG_ERR("OTA Error: %s (%d)", message ? message : "Unknown", error);
 }
 
-/* Flush write buffer to flash */
-static enum ota_result flush_write_buffer(void)
+/* Internal flush — caller must hold ota_buf_mutex. */
+static enum ota_result flush_write_buffer_locked(void)
 {
     if (buffer_pos == 0 || !secondary_fa)
     {
         return OTA_OK;
     }
 
-    /* Get flash write alignment requirement */
     size_t write_alignment = flash_area_align(secondary_fa);
-
-    /* Align buffer size up to write alignment boundary */
     uint16_t aligned_size = ROUND_UP(buffer_pos, write_alignment);
 
     if (aligned_size > OTA_WRITE_BUFFER_SIZE)
@@ -242,13 +240,11 @@ static enum ota_result flush_write_buffer(void)
         return OTA_ERROR_FLASH_WRITE_FAILED;
     }
 
-    /* Pad with 0xFF (flash erase value) */
     if (aligned_size > buffer_pos)
     {
         memset(&write_buffer[buffer_pos], 0xFF, aligned_size - buffer_pos);
     }
 
-    /* Calculate write offset atomically */
     k_mutex_lock(&ota_mutex, K_FOREVER);
     uint32_t write_offset = ota_status.bytes_written - buffer_pos;
     k_mutex_unlock(&ota_mutex);
@@ -262,6 +258,16 @@ static enum ota_result flush_write_buffer(void)
 
     buffer_pos = 0;
     return OTA_OK;
+}
+
+/* Public flush — acquires ota_buf_mutex.  Used by abort and finalize paths
+ * that do not already hold the buffer mutex. */
+static enum ota_result flush_write_buffer(void)
+{
+    k_mutex_lock(&ota_buf_mutex, K_FOREVER);
+    enum ota_result r = flush_write_buffer_locked();
+    k_mutex_unlock(&ota_buf_mutex);
+    return r;
 }
 
 /* Forward declaration */
@@ -367,15 +373,17 @@ static enum ota_result do_write_chunk(const uint8_t *data, uint16_t length)
     uint16_t remaining = length;
     const uint8_t *src = data;
 
+    k_mutex_lock(&ota_buf_mutex, K_FOREVER);
+
     while (remaining > 0 && result == OTA_OK)
     {
         uint16_t copy_size = MIN(remaining, OTA_WRITE_BUFFER_SIZE - buffer_pos);
 
-        /* FIXED: Validate buffer bounds */
         if (buffer_pos + copy_size > OTA_WRITE_BUFFER_SIZE)
         {
             LOG_ERR("Buffer overflow prevented: %u + %u > %u",
                     buffer_pos, copy_size, OTA_WRITE_BUFFER_SIZE);
+            k_mutex_unlock(&ota_buf_mutex);
             return OTA_ERROR_INVALID_PARAM;
         }
 
@@ -384,15 +392,13 @@ static enum ota_result do_write_chunk(const uint8_t *data, uint16_t length)
         src += copy_size;
         remaining -= copy_size;
 
-        /* Update bytes written counter atomically */
         k_mutex_lock(&ota_mutex, K_FOREVER);
         ota_status.bytes_written += copy_size;
         k_mutex_unlock(&ota_mutex);
 
-        /* Flush buffer when full */
         if (buffer_pos >= OTA_WRITE_BUFFER_SIZE)
         {
-            result = flush_write_buffer();
+            result = flush_write_buffer_locked();
         }
 
         /* Progress reporting optimization */
@@ -417,6 +423,7 @@ static enum ota_result do_write_chunk(const uint8_t *data, uint16_t length)
         }
     }
 
+    k_mutex_unlock(&ota_buf_mutex);
     return result;
 }
 
@@ -477,9 +484,13 @@ static enum ota_result do_finalize_update(void)
 
 static enum ota_result do_abort_update(void)
 {
+    /* flush_write_buffer() acquires ota_buf_mutex internally — safe to call
+     * from any thread.  After flushing, clear buffer_pos under the same mutex
+     * in case secondary_fa was NULL and the flush was a no-op. */
+    flush_write_buffer(); /* ignore errors during abort */
+
     if (secondary_fa)
     {
-        flush_write_buffer(); // Ignore errors during abort
         flash_area_close(secondary_fa);
         secondary_fa = NULL;
     }
@@ -493,7 +504,10 @@ static enum ota_result do_abort_update(void)
     strcpy(ota_status.status_message, "Aborted");
     k_mutex_unlock(&ota_mutex);
 
+    k_mutex_lock(&ota_buf_mutex, K_FOREVER);
     buffer_pos = 0;
+    k_mutex_unlock(&ota_buf_mutex);
+
     LOG_INF("OTA aborted");
     return OTA_OK;
 }
