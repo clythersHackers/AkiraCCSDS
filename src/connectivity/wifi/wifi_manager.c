@@ -138,8 +138,23 @@ int wifi_manager_connect(void)
     char ssid[MAX_VALUE_LEN];
     char psk[MAX_VALUE_LEN];
 
-    if (akira_settings_get(AKIRA_SETTINGS_WIFI_SSID_KEY, ssid, sizeof(ssid)) != 0 ||
-        akira_settings_get(AKIRA_SETTINGS_WIFI_PSK_KEY,  psk,  sizeof(psk))  != 0) {
+    /* Try the combined atomic key first; fall back to legacy individual keys
+     * for devices that were provisioned before this format was introduced. */
+    char combined[MAX_VALUE_LEN * 2 + 2];
+    if (akira_settings_get(AKIRA_SETTINGS_WIFI_CREDS_KEY, combined, sizeof(combined)) == 0) {
+        char *tab = strchr(combined, '\t');
+        if (!tab) {
+            k_mutex_unlock(&mgr.lock);
+            LOG_ERR("Malformed combined WiFi credentials");
+            return -EINVAL;
+        }
+        *tab = '\0';
+        strncpy(ssid, combined, sizeof(ssid) - 1);
+        ssid[sizeof(ssid) - 1] = '\0';
+        strncpy(psk, tab + 1, sizeof(psk) - 1);
+        psk[sizeof(psk) - 1] = '\0';
+    } else if (akira_settings_get(AKIRA_SETTINGS_WIFI_SSID_KEY, ssid, sizeof(ssid)) != 0 ||
+               akira_settings_get(AKIRA_SETTINGS_WIFI_PSK_KEY,  psk,  sizeof(psk))  != 0) {
         k_mutex_unlock(&mgr.lock);
         LOG_ERR("No WiFi credentials in NVS");
         return -ENOENT;
@@ -204,15 +219,18 @@ int wifi_manager_update_credentials(const char *ssid, const char *psk)
         return -EINVAL;
     }
 
-    int ret = akira_settings_set(AKIRA_SETTINGS_WIFI_SSID_KEY, ssid, false);
-    if (ret) {
-        LOG_ERR("Failed to save SSID: %d", ret);
-        return ret;
+    /* Write SSID and PSK as one tab-delimited value so the single NVS write is
+     * atomic — a power-loss between two separate writes can leave stale PSK or
+     * SSID and cause a permanent connection failure on next boot. */
+    char combined[MAX_VALUE_LEN * 2 + 2];
+    int n = snprintf(combined, sizeof(combined), "%s\t%s", ssid, psk);
+    if (n < 0 || (size_t)n >= sizeof(combined)) {
+        return -ENAMETOOLONG;
     }
 
-    ret = akira_settings_set(AKIRA_SETTINGS_WIFI_PSK_KEY, psk, true);
+    int ret = akira_settings_set(AKIRA_SETTINGS_WIFI_CREDS_KEY, combined, true);
     if (ret) {
-        LOG_ERR("Failed to save PSK: %d", ret);
+        LOG_ERR("Failed to save WiFi credentials: %d", ret);
         return ret;
     }
 
