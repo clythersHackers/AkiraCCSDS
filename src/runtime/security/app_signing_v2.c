@@ -27,12 +27,19 @@ int akira_platform_allowlist_verify(const uint8_t *app_hash, size_t hash_len);
 #include <mbedtls/pk.h>
 #include <mbedtls/md.h>
 #include <mbedtls/error.h>
+#ifdef MBEDTLS_X509_CRT_PARSE_C
+#include <mbedtls/x509_crt.h>
+#endif
 #define CRYPTO_AVAILABLE 1
 #else
 #define CRYPTO_AVAILABLE 0
 #endif
 
-#define MAX_TRUSTED_ROOTS 4
+#define MAX_TRUSTED_ROOTS 8 /* Raised from 4 to support certificate rotation / multiple CAs */
+
+/* Maximum size of a DER-encoded SubjectPublicKeyInfo block.
+ * RSA-2048: 294 bytes; Ed25519: 44 bytes.  Use RSA size as the safe upper bound. */
+#define MAX_PUBKEY_DER_SIZE 300
 
 /* WASM magic bytes */
 static const uint8_t WASM_MAGIC[] = {0x00, 0x61, 0x73, 0x6D};
@@ -54,6 +61,12 @@ static struct
 {
     bool initialized;
     uint8_t root_hashes[MAX_TRUSTED_ROOTS][32];
+    /* DER-encoded SubjectPublicKeyInfo for each trusted root.
+     * Extracted from the X.509 certificate at app_add_trusted_root() time so
+     * that app_verify_signature() can call mbedtls_pk_verify() without
+     * storing the full 1 KB certificate. */
+    uint8_t root_pubkeys_der[MAX_TRUSTED_ROOTS][MAX_PUBKEY_DER_SIZE];
+    size_t  root_pubkeys_len[MAX_TRUSTED_ROOTS];
     int root_count;
 } g_signing_state = {0};
 
@@ -163,44 +176,71 @@ int app_verify_signature(const void *binary, size_t size,
         return ret;
     }
 
+    /* Locate the trusted root entry that matches this signature's cert_hash */
+    int root_slot = -1;
+    for (int i = 0; i < g_signing_state.root_count; i++)
+    {
+        if (memcmp(g_signing_state.root_hashes[i], signature->cert_hash, 32) == 0)
+        {
+            root_slot = i;
+            break;
+        }
+    }
+
+    if (root_slot < 0)
+    {
+        LOG_ERR("Signing certificate not in trusted roots");
+        sandbox_audit_log(AUDIT_EVENT_SIGNATURE_FAIL, "untrusted_cert", 0);
+        return -EACCES;
+    }
+
+    if (g_signing_state.root_pubkeys_len[root_slot] == 0)
+    {
+        /* Public key was never extracted — signing subsystem is misconfigured.
+         * Reject the app rather than silently passing without verification. */
+        LOG_ERR("No public key stored for trusted root slot %d — "
+                "enable MBEDTLS_X509_CRT_PARSE_C and re-provision the root CA",
+                root_slot);
+        sandbox_audit_log(AUDIT_EVENT_SIGNATURE_FAIL, "no_pubkey", 0);
+        return -ENOKEY;
+    }
+
+    /* Parse the stored SubjectPublicKeyInfo and verify the signature */
+    mbedtls_pk_context pk;
+    mbedtls_pk_init(&pk);
+
+    ret = mbedtls_pk_parse_public_key(&pk,
+                                      g_signing_state.root_pubkeys_der[root_slot],
+                                      g_signing_state.root_pubkeys_len[root_slot]);
+    if (ret != 0)
+    {
+        LOG_ERR("Failed to parse stored public key: -0x%04x", (unsigned int)-ret);
+        mbedtls_pk_free(&pk);
+        sandbox_audit_log(AUDIT_EVENT_SIGNATURE_FAIL, "bad_pubkey", 0);
+        return -EINVAL;
+    }
+
     switch (signature->algorithm)
     {
     case SIGN_ALG_RSA2048_SHA256:
     {
         LOG_INF("Verifying RSA-2048-SHA256 signature (%zu bytes)", size);
 
-        /*
-         * RSA signature verification using mbedTLS PK layer.
-         * The cert_hash field in the signature identifies which
-         * trusted root's public key to use for verification.
-         *
-         * In production, the public key would be loaded from the
-         * trusted root certificate. For now, we verify the hash
-         * of the signing certificate is in our trusted root list.
-         */
-        if (!app_is_root_trusted(signature->cert_hash))
+        ret = mbedtls_pk_verify(&pk, MBEDTLS_MD_SHA256,
+                                hash, 32,
+                                signature->signature,
+                                signature->signature_len);
+        if (ret != 0)
         {
-            LOG_ERR("Signing certificate not in trusted roots");
-            sandbox_audit_log(AUDIT_EVENT_SIGNATURE_FAIL, "untrusted_cert", 0);
+            LOG_ERR("RSA-2048 signature verification FAILED: -0x%04x",
+                    (unsigned int)-ret);
+            mbedtls_pk_free(&pk);
+            sandbox_audit_log(AUDIT_EVENT_SIGNATURE_FAIL, "rsa2048_bad_sig", 0);
             return -EACCES;
         }
 
-        /*
-         * Note: Full RSA verification requires the public key from
-         * the certificate. This framework is ready for production use
-         * once root CA certificates are provisioned with public keys.
-         * The PK verification call would be:
-         *
-         * mbedtls_pk_context pk;
-         * mbedtls_pk_init(&pk);
-         * mbedtls_pk_parse_public_key(&pk, pubkey_der, pubkey_len);
-         * ret = mbedtls_pk_verify(&pk, MBEDTLS_MD_SHA256,
-         *                         hash, 32,
-         *                         signature->signature,
-         *                         signature->signature_len);
-         * mbedtls_pk_free(&pk);
-         */
-        LOG_INF("RSA signature framework ready - cert hash verified");
+        mbedtls_pk_free(&pk);
+        LOG_INF("RSA-2048-SHA256 signature verified OK");
         sandbox_audit_log(AUDIT_EVENT_SIGNATURE_OK, "rsa2048", 0);
         return 0;
     }
@@ -209,24 +249,29 @@ int app_verify_signature(const void *binary, size_t size,
     {
         LOG_INF("Verifying Ed25519 signature (%zu bytes)", size);
 
-        if (!app_is_root_trusted(signature->cert_hash))
+        /* Ed25519 uses raw 64-byte signatures; mbedTLS PK layer handles
+         * EdDSA when MBEDTLS_ECP_DP_CURVE25519_ENABLED is set. */
+        ret = mbedtls_pk_verify(&pk, MBEDTLS_MD_NONE,
+                                hash, 32,
+                                signature->signature,
+                                signature->signature_len);
+        if (ret != 0)
         {
-            LOG_ERR("Signing certificate not in trusted roots");
-            sandbox_audit_log(AUDIT_EVENT_SIGNATURE_FAIL, "untrusted_cert", 0);
+            LOG_ERR("Ed25519 signature verification FAILED: -0x%04x",
+                    (unsigned int)-ret);
+            mbedtls_pk_free(&pk);
+            sandbox_audit_log(AUDIT_EVENT_SIGNATURE_FAIL, "ed25519_bad_sig", 0);
             return -EACCES;
         }
 
-        /*
-         * Ed25519 verification is similar to RSA but uses the
-         * EdDSA algorithm. mbedTLS supports this via the PK layer
-         * when compiled with MBEDTLS_ECP_DP_CURVE25519_ENABLED.
-         */
-        LOG_INF("Ed25519 signature framework ready - cert hash verified");
+        mbedtls_pk_free(&pk);
+        LOG_INF("Ed25519 signature verified OK");
         sandbox_audit_log(AUDIT_EVENT_SIGNATURE_OK, "ed25519", 0);
         return 0;
     }
 
     default:
+        mbedtls_pk_free(&pk);
         LOG_ERR("Unknown signature algorithm: %d", signature->algorithm);
         return -EINVAL;
     }
@@ -332,7 +377,52 @@ int app_add_trusted_root(const akira_cert_t *cert)
         return 0;
     }
 
-    memcpy(g_signing_state.root_hashes[g_signing_state.root_count], hash, 32);
+    int slot = g_signing_state.root_count;
+    memcpy(g_signing_state.root_hashes[slot], hash, 32);
+
+#if CRYPTO_AVAILABLE && defined(MBEDTLS_X509_CRT_PARSE_C)
+    /* Extract the SubjectPublicKeyInfo from the X.509 certificate so that
+     * app_verify_signature() can call mbedtls_pk_verify() without needing
+     * to store the full DER-encoded certificate. */
+    {
+        mbedtls_x509_crt crt;
+        mbedtls_x509_crt_init(&crt);
+
+        int parse_ret = mbedtls_x509_crt_parse_der(&crt, cert->cert_data, cert->cert_len);
+        if (parse_ret != 0)
+        {
+            LOG_ERR("Failed to parse root certificate: -0x%04x", (unsigned int)-parse_ret);
+            mbedtls_x509_crt_free(&crt);
+            return -EINVAL;
+        }
+
+        /* mbedtls_pk_write_pubkey_der writes from the END of the buffer */
+        unsigned char pk_buf[MAX_PUBKEY_DER_SIZE];
+        int pk_len = mbedtls_pk_write_pubkey_der(&crt.pk, pk_buf, sizeof(pk_buf));
+        if (pk_len <= 0 || pk_len > MAX_PUBKEY_DER_SIZE)
+        {
+            LOG_ERR("Failed to export public key DER: %d", pk_len);
+            mbedtls_x509_crt_free(&crt);
+            return -EIO;
+        }
+
+        /* DER output is right-aligned in pk_buf; copy to the start of our slot */
+        memcpy(g_signing_state.root_pubkeys_der[slot],
+               pk_buf + sizeof(pk_buf) - pk_len, (size_t)pk_len);
+        g_signing_state.root_pubkeys_len[slot] = (size_t)pk_len;
+
+        mbedtls_x509_crt_free(&crt);
+    }
+#else
+    /* Without X.509 parsing support, public key cannot be extracted.
+     * Signature verification will fall back to hash-only trust check,
+     * which does NOT provide cryptographic verification.
+     * Enable CONFIG_MBEDTLS_X509_CRT_PARSE_C for production builds. */
+    g_signing_state.root_pubkeys_len[slot] = 0;
+    LOG_WRN("MBEDTLS_X509_CRT_PARSE_C not available — public key not stored, "
+            "signature verification will be INCOMPLETE");
+#endif
+
     g_signing_state.root_count++;
 
     LOG_INF("Added trusted root CA (%d/%d)", g_signing_state.root_count,
