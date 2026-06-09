@@ -128,14 +128,6 @@ int akira_native_fs_open(wasm_exec_env_t exec_env,
 
     wasm_module_inst_t inst = wasm_runtime_get_module_inst(exec_env);
 
-    k_mutex_lock(&s_fds_mutex, K_FOREVER);
-    int fd = fd_alloc(inst);
-    if (fd < 0) {
-        k_mutex_unlock(&s_fds_mutex);
-        return -EMFILE;
-    }
-    k_mutex_unlock(&s_fds_mutex);
-
     fs_mode_t zflags = 0;
     if (flags & AKIRA_FS_O_WRITE)  { zflags |= FS_O_WRITE; }
     if (flags & AKIRA_FS_O_READ)   { zflags |= FS_O_READ;  }
@@ -144,14 +136,23 @@ int akira_native_fs_open(wasm_exec_env_t exec_env,
     if (flags & AKIRA_FS_O_CREATE) { zflags |= FS_O_CREATE; }
     if (flags & AKIRA_FS_O_TRUNC)  { zflags |= FS_O_TRUNC;  }
 
+    /* Hold mutex across alloc + open so a concurrent close cannot observe the
+     * slot in the gap between fd_alloc() and fs_open() succeeding. */
+    k_mutex_lock(&s_fds_mutex, K_FOREVER);
+    int fd = fd_alloc(inst);
+    if (fd < 0) {
+        k_mutex_unlock(&s_fds_mutex);
+        return -EMFILE;
+    }
+
     ret = fs_open(&s_fds[fd].zfile, full, zflags);
     if (ret < 0) {
-        k_mutex_lock(&s_fds_mutex, K_FOREVER);
         fd_release(&s_fds[fd]);
         k_mutex_unlock(&s_fds_mutex);
         LOG_DBG("fs_open '%s' failed: %d", full, ret);
         return ret;
     }
+    k_mutex_unlock(&s_fds_mutex);
     return fd;
 }
 
