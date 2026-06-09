@@ -1368,6 +1368,20 @@ static int registry_load(void)
         return -EINVAL;
     }
 
+    /* Verify CRC: temporarily zero the crc field, compute, restore */
+    if (header->crc != 0)
+    {
+        uint32_t stored_crc = header->crc;
+        header->crc = 0;
+        uint32_t computed = crc32_ieee(buffer, read);
+        header->crc = stored_crc;
+        if (computed != stored_crc)
+        {
+            LOG_WRN("Registry CRC mismatch (stored=0x%08x computed=0x%08x)", stored_crc, computed);
+            return -EIO;
+        }
+    }
+
     /* Read entries */
     int count = header->app_count;
     if (count > CONFIG_AKIRA_APP_MAX_INSTALLED)
@@ -1403,13 +1417,13 @@ static int registry_save(void)
     uint8_t buffer[sizeof(registry_header_t) + CONFIG_AKIRA_APP_MAX_INSTALLED * sizeof(app_entry_t)];
     size_t offset = 0;
 
-    /* Write header */
+    /* Write header with crc=0 placeholder; will be patched after entries are written */
     registry_header_t header = {
         .magic = REGISTRY_MAGIC,
         .version = REGISTRY_VERSION,
         .app_count = g_app_count,
         .reserved = 0,
-        .crc = 0, /* TODO: Calculate CRC */
+        .crc = 0,
     };
 
     memcpy(buffer, &header, sizeof(header));
@@ -1424,6 +1438,10 @@ static int registry_save(void)
             offset += sizeof(app_entry_t);
         }
     }
+
+    /* Patch CRC over the entire serialized payload (header crc field = 0) */
+    uint32_t crc = crc32_ieee(buffer, offset);
+    ((registry_header_t *)buffer)->crc = crc;
 
     /* Save using fs_manager (handles RAM fallback) */
     ssize_t written = fs_manager_write_file(REGISTRY_PATH, buffer, offset);
