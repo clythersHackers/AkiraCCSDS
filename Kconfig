@@ -668,29 +668,41 @@ config AKIRA_CCSDS_ROUTER_MAX_APIDS
     help
       Size of the fixed APID dispatch table used by the CCSDS packet router.
 
+config AKIRA_CCSDS_FRAME_SUPPORT
+    bool "Enable CCSDS frame and channel coding support"
+    default y
+    help
+      Enable TC/TM transfer frame boundaries plus CLTU, BCH, Reed-Solomon,
+      and profile glue. Disable this for packet-only deployments where the
+      selected link carries CCSDS Space Packets directly.
+
 config AKIRA_CCSDS_MAX_CLTU_LEN
     int "Maximum CCSDS CLTU length"
     default 1024
     range 64 65535
+    depends on AKIRA_CCSDS_FRAME_SUPPORT
     help
       Maximum CLTU byte buffer held by the stateful CLTU receiver.
 
 config AKIRA_CCSDS_MAX_FRAME_LEN
     int "Maximum CCSDS transfer frame length"
-    default 1024
+    default 1115
     range 32 65535
+    depends on AKIRA_CCSDS_FRAME_SUPPORT
     help
       Maximum transfer-frame workspace used by optional CCSDS profile glue.
 
 config AKIRA_CCSDS_BCH
     bool "Enable CCSDS BCH primitive"
     default y
+    depends on AKIRA_CCSDS_FRAME_SUPPORT
     help
       Enable the BCH primitive used by CLTU receive processing.
 
 config AKIRA_CCSDS_RS
     bool "Enable CCSDS Reed-Solomon primitive"
     default y
+    depends on AKIRA_CCSDS_FRAME_SUPPORT
     help
       Enable the Reed-Solomon primitive used by TM frame coding.
 

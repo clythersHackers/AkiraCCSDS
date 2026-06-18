@@ -682,15 +682,20 @@ endif()
 # CAN, UDP, BLE, UART, or RF should attach at the CCSDS layer they carry.
 if(CONFIG_AKIRA_CCSDS)
     target_sources(app PRIVATE
-        src/connectivity/ccsds/ccsds_bch.c
-        src/connectivity/ccsds/ccsds_cltu.c
-        src/connectivity/ccsds/ccsds_profile.c
         src/connectivity/ccsds/ccsds_router.c
-        src/connectivity/ccsds/ccsds_rs.c
         src/connectivity/ccsds/ccsds_space_packet.c
-        src/connectivity/ccsds/ccsds_tc_frame.c
-        src/connectivity/ccsds/ccsds_tm_frame.c
     )
+
+    if(CONFIG_AKIRA_CCSDS_FRAME_SUPPORT)
+        target_sources(app PRIVATE
+            src/connectivity/ccsds/ccsds_bch.c
+            src/connectivity/ccsds/ccsds_cltu.c
+            src/connectivity/ccsds/ccsds_profile.c
+            src/connectivity/ccsds/ccsds_rs.c
+            src/connectivity/ccsds/ccsds_tc_frame.c
+            src/connectivity/ccsds/ccsds_tm_frame.c
+        )
+    endif()
 endif()
 
 # Matter protocol
