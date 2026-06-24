@@ -9,6 +9,7 @@ Do not update Zephyr unless explicitly asked.
 Do not edit generated build files.
 Do not scan the whole Zephyr tree unless necessary.
 Do not make broad refactors.
+Use Zephyr & AkiraOS documentation of official API's before scanning
 
 # Known target
 
@@ -17,7 +18,7 @@ Host: Fedora Linux
 Container: VS Code devcontainer
 Build command: ./build.sh -b akiraconsole
 
-# Expected setup steps
+# Expected setup steps (already completed)
 
 1. Install required host packages.
 2. Open repo in devcontainer.
@@ -36,3 +37,8 @@ When a build fails:
 2. Identify whether it is environment, dependency, board config, Zephyr API mismatch, or source error.
 3. Propose one minimal change.
 4. Do not attempt more than one fix at a time.
+
+# Task focus
+
+1. Development of CCSDS protocol features in src/connectivity/ccsds
+2. Allow registering of CCSDS I/O on different device interfaces (e.g. UDP, UART, RF, ...)
