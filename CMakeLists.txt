@@ -682,6 +682,7 @@ endif()
 # CAN, UDP, BLE, UART, or RF should attach at the CCSDS layer they carry.
 if(CONFIG_AKIRA_CCSDS)
     target_sources(app PRIVATE
+        src/connectivity/ccsds/ccsds_crc16.c
         src/connectivity/ccsds/ccsds_router.c
         src/connectivity/ccsds/ccsds_space_packet.c
     )

@@ -58,6 +58,7 @@ dkms.conf
 build/
 .build/
 outdir/
+build-tests/
 
 # West workspace
 .west/
@@ -94,6 +95,13 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Coverage artifacts
+*.gcda
+*.gcno
+
+# Firmware/build artifacts
+flash.bin
 
 
 build_esp32s3/

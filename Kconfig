@@ -755,6 +755,14 @@ config AKIRA_CCSDS_RS_INTERLEAVE_DEPTH
       commonly uses I=5, producing 1115 data symbols and 160 parity symbols
       for the RS(255,223) code.
 
+config AKIRA_CCSDS_TM_FECF
+    bool "Enable CCSDS TM Frame Error Control Field"
+    default n
+    depends on AKIRA_CCSDS_FRAME_SUPPORT
+    help
+      Append a CCSDS CRC-16 Frame Error Control Field to generated TM
+      transfer frames before optional Reed-Solomon parity is computed.
+
 endif # AKIRA_CCSDS
 
 config BT_RECONNECT_DELAY_MS

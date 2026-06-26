@@ -35,7 +35,9 @@ target_sources(app PRIVATE
     ${AKIRA_SRC}/connectivity/ota/ota_manager.c
     ${AKIRA_SRC}/connectivity/ccsds/ccsds_bch.c
     ${AKIRA_SRC}/connectivity/ccsds/ccsds_cltu.c
+    ${AKIRA_SRC}/connectivity/ccsds/ccsds_crc16.c
     ${AKIRA_SRC}/connectivity/ccsds/ccsds_rs.c
+    ${AKIRA_SRC}/connectivity/ccsds/ccsds_tm_frame.c
 
     # Stubs
     stubs/stub_mcuboot.c
@@ -47,7 +49,9 @@ target_sources(app PRIVATE
     src/test_ota_state.c
     src/test_ccsds_bch.c
     src/test_ccsds_cltu.c
+    src/test_ccsds_crc16.c
     src/test_ccsds_rs.c
+    src/test_ccsds_tm_frame.c
 )
 
 # ota_manager.c guards its flash_area and mcuboot includes behind:
