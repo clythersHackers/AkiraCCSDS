@@ -1,4 +1,14 @@
-# CCSDS TM Frame Generator Plan
+# CCSDS TM Frame Generator Design and Completion Notes
+
+## Status
+
+The TM frame generator work described in this document is complete for the
+current AkiraOS CCSDS development slice. This file began as an implementation
+plan, and it is kept as a design/completion record for the implemented TM
+generator, coding path, manual activation flow, and log/UDP route support.
+
+New TM work should be tracked as a separate follow-up plan or in the "Later
+Work" section below. TC receive work is tracked separately in `TC_PLAN.md`.
 
 ## Current State
 
