@@ -682,7 +682,8 @@ config AKIRA_CCSDS_MAX_CLTU_LEN
     range 64 65535
     depends on AKIRA_CCSDS_FRAME_SUPPORT
     help
-      Maximum CLTU byte buffer held by the stateful CLTU receiver.
+      Maximum CLTU byte buffer held by the stateful CLTU receiver. The receiver
+      uses the fixed CCSDS tail sequence 0xC5C5C5C5C5C5C579.
 
 config AKIRA_CCSDS_MAX_FRAME_LEN
     int "Maximum CCSDS transfer frame length"
@@ -694,7 +695,7 @@ config AKIRA_CCSDS_MAX_FRAME_LEN
 
 config AKIRA_CCSDS_SPACECRAFT_ID
     int "CCSDS spacecraft ID"
-    default 626
+    default 123
     range 0 1023
     depends on AKIRA_CCSDS_FRAME_SUPPORT
     help
@@ -730,25 +731,6 @@ config AKIRA_CCSDS_TM_QUEUE_DEPTH
       Bounded byte-pipe storage reserved for each TM virtual channel. This
       defaults to the maximum TM Space Packet length so one maximum-sized
       packet can be admitted unless a board or profile overrides it.
-
-choice AKIRA_CCSDS_CLTU_TAIL
-    prompt "CLTU tail sequence"
-    default AKIRA_CCSDS_CLTU_TAIL_CCSDS
-    depends on AKIRA_CCSDS_FRAME_SUPPORT
-    help
-      Select the standard 64-bit CLTU tail sequence used by the receiver.
-
-config AKIRA_CCSDS_CLTU_TAIL_CCSDS
-    bool "CCSDS tail sequence"
-    help
-      Use the CCSDS tail sequence 0x5555555555555555.
-
-config AKIRA_CCSDS_CLTU_TAIL_ECSS
-    bool "ECSS tail sequence"
-    help
-      Use the ECSS tail sequence 0xC5C5C5C5C5C5C579.
-
-endchoice
 
 config AKIRA_CCSDS_BCH
     bool "Enable CCSDS BCH primitive"

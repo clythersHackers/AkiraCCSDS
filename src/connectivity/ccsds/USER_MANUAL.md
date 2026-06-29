@@ -263,6 +263,66 @@ With networking disabled, status reports:
 ccsds tc udp available=0 running=0
 ```
 
+### Basic TC UDP Smoke Test
+
+Build and flash with CCSDS enabled, then start the TC UDP listener from the
+device shell:
+
+```text
+ccsds tc start udp
+ccsds tc status udp
+```
+
+Confirm that the listener is running and note the local port:
+
+```text
+ccsds tc udp available=1 running=1
+local_port=5005
+```
+
+From a host on the same network, send this CLTU test vector to the device IP
+address and TC UDP local port:
+
+```sh
+echo 'EB900123456789ABCD90C5C5C5C5C5C5C579' | xxd -r -p | nc -u -w1 <device-ip> 5005
+```
+
+This vector is a minimal AkiraOS decoder test input: CLTU start sequence
+`EB90`, one valid BCH(63,56) block, and the fixed CLTU tail sequence
+`C5C5C5C5C5C5C579`.
+
+Check UDP transport status:
+
+```text
+ccsds tc status udp
+```
+
+Expected UDP status after one received datagram:
+
+```text
+udp_rx=1 udp_last_error=<negative ENOTSUP value>
+```
+
+Check shared TC receive status:
+
+```text
+ccsds tc status
+```
+
+Expected shared TC status changes:
+
+```text
+cltu_rx=1 oversize=0 cltu_fail=0 frame_reject=1 control=0
+dispatch_ok=0 dispatch_fail=0 last_error=<negative ENOTSUP value>
+last_cltu_len=18 last_tc_frame_len=7
+```
+
+For this UDP smoke test, `ENOTSUP` means the datagram reached the listener and
+the CLTU passed into the TC receive path. The numeric errno can differ between
+native simulator and MCU targets. A result with `udp_rx=0` means the UDP
+datagram did not reach the listener; first check the device IP address and the
+printed `local_port`.
+
 ## Route Names
 
 Supported route names in the current shell:

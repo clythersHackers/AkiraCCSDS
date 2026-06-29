@@ -6,7 +6,9 @@ The CCSDS module already has several pieces needed for a telecommand receive
 path, but the TC path is not complete:
 
 - `ccsds_cltu_decode_message()` can decode one complete CLTU into TC transfer
-  frame bytes using the BCH primitive.
+  frame bytes using the BCH primitive. It validates the fixed 64-bit CLTU tail
+  sequence `c5 c5 c5 c5 c5 c5 c5 79` and excludes that final codeblock from
+  BCH decode, but CLTU fill handling still needs to be implemented and tested.
 - `ccsds_cltu_rx_push()` is still a streaming-acquisition stub.
 - `ccsds_tc_frame_decode()` is still a stub.
 - `ccsds_tc_frame_extract_packet()` currently assumes the decoded TC frame data
@@ -26,7 +28,8 @@ details from memory.
 
 - Keep TC decoding independent of any transport.
 - Accept complete CLTUs as the first TC input unit.
-- Decode CLTUs into TC transfer frames using the existing CLTU/BCH boundary.
+- Decode CLTUs into TC transfer frames using verified CLTU start, BCH block,
+  tail-sequence, and fill handling.
 - Decode TC transfer frames enough to reject malformed input, reject wrong
   spacecraft IDs, identify control frames, and expose the frame data field.
 - Log every rejected CLTU or TC frame with a concise reason.
@@ -88,6 +91,26 @@ metadata such as input length, spacecraft ID, VCID, control/bypass state, and
 frame sequence number when those fields were decoded. Do not dump full CLTU,
 frame, or command contents by default.
 
+## CLTU Acquisition and Decode
+
+The complete-CLTU decoder should validate the CLTU boundary before TC frame
+decode:
+
+1. Validate the CLTU start sequence.
+2. Validate the fixed CLTU tail sequence `c5 c5 c5 c5 c5 c5 c5 79` as the
+   final 8-byte codeblock.
+3. Exclude the tail sequence from BCH data-block decode.
+4. Decode only complete BCH(63,56) codeblocks before the tail sequence.
+5. Accept permitted CLTU codeblock fill only according to verified rules.
+6. Reject trailing data after the tail sequence unless a verified profile rule
+   permits it.
+7. Report malformed start, missing tail, invalid tail, non-block-aligned BCH
+   body, invalid BCH parity, and invalid fill distinctly enough for tests and
+   counters.
+
+UDP and future transport adapters still pass one bounded CLTU unit into the
+TC receive core. They should not parse tail sequences themselves.
+
 ## TC Frame Decode
 
 The first `ccsds_tc_frame_decode()` implementation should be intentionally
@@ -106,8 +129,8 @@ small:
 8. Update the CLCW-producing state after accepted/rejected TC frames.
 9. Expose the frame data field as a view into the provided buffer when the
    frame carries packet data.
-10. Ignore CLTU codeblock fill according to verified TC transfer-frame length
-   rules.
+10. Consume decoded TC transfer-frame bytes after CLTU tail and fill handling
+   has already been completed by the CLTU layer.
 
 The TC frame path should not:
 
@@ -181,14 +204,15 @@ remain the default.
 
 ## UDP TC Input Adapter
 
-Add a UDP input module only when networking is available, for example:
+The UDP input adapter already exists and is compiled only when networking is
+available:
 
 ```text
 src/connectivity/ccsds/ccsds_tc_udp_input.h
 src/connectivity/ccsds/ccsds_tc_udp_input.c
 ```
 
-Suggested behavior:
+Current intended behavior:
 
 - Compile only when `CONFIG_NETWORKING=y`.
 - Bind to a Kconfig-configured local UDP port.
@@ -243,22 +267,28 @@ platform behavior selected by AkiraOS, not CCSDS protocol mechanics.
 1. [x] Rename the existing TM plan to `TM_PLAN.md`.
 2. [x] Add this `TC_PLAN.md`.
 3. [ ] Add focused tests using supplied complete CLTU vectors.
-4. [ ] Implement TC frame decode enough to reject malformed input and wrong
+4. [x] Add CLTU tail-sequence detection, validation, stripping, and tests.
+5. [ ] Implement TC frame decode enough to reject malformed input and wrong
    spacecraft IDs.
-5. [ ] Detect control frames and return a clear unsupported-control result until
+6. [ ] Detect control frames and return a clear unsupported-control result until
    exact handling is implemented from references.
-6. [ ] Add minimal COP-1/FARM acceptance and CLCW-producing state in the TC
+7. [ ] Add minimal COP-1/FARM acceptance and CLCW-producing state in the TC
    frame path.
-7. [ ] Add a CLCW provider and inject its value into TM OCF.
-8. [ ] Add tests proving generated TM output carries the expected CLCW.
-9. [ ] Add UDP input for complete CLTU datagrams when
-   `CONFIG_NETWORKING=y`.
-10. [ ] Add TC packet reassembly.
-11. [ ] Add harmless core-platform test APIDs.
+8. [ ] Add a CLCW provider and inject its value into TM OCF.
+9. [ ] Add tests proving generated TM output carries the expected CLCW.
+10. [x] Add UDP input for complete CLTU datagrams when
+    `CONFIG_NETWORKING=y`.
+11. [ ] Add tests/status polish for UDP input.
+12. [ ] Add TC packet reassembly.
+13. [ ] Add harmless core-platform test APIDs.
 
 ## Suggested Tests
 
 - Complete supplied CLTU decodes into TC frame bytes.
+- CLTU decode rejects missing or malformed tail sequences.
+- CLTU decode strips the tail sequence before BCH codeblock decode.
+- CLTU decode rejects non-block-aligned BCH body before the tail sequence.
+- CLTU decode handles permitted codeblock fill according to verified vectors.
 - Rejected CLTUs and TC frames emit concise reject logs.
 - TC frame decode rejects invalid lengths.
 - TC frame decode rejects wrong spacecraft ID.

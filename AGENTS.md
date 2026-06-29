@@ -38,6 +38,13 @@ When a build fails:
 3. Propose one minimal change.
 4. Do not attempt more than one fix at a time.
 
+# Documentation rule
+
+User manuals should describe supported user-facing behavior and workflows, not
+temporary implementation status or roadmap notes.
+Use plans, design notes, or task trackers for incomplete feature status,
+limitations under active development, and future work.
+
 # Task focus
 
 1. Development of CCSDS protocol features in src/connectivity/ccsds
