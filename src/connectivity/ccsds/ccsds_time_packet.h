@@ -63,18 +63,14 @@ int ccsds_time_packet_start(uint8_t vcid);
 
 /**
  * @brief Stop the APID 0 time packet producer.
- *
- * @return 0 on success.
  */
-int ccsds_time_packet_stop(void);
+void ccsds_time_packet_stop(void);
 
 #ifdef CONFIG_ZTEST
 /**
  * @brief Run one test-local producer cycle synchronously.
- *
- * @return 0 on success.
  */
-int ccsds_time_packet_test_enqueue_now(void);
+void ccsds_time_packet_test_enqueue_now(void);
 #endif
 
 #ifdef __cplusplus

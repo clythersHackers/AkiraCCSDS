@@ -10,6 +10,7 @@
 #include "ccsds/ccsds_cltu.h"
 #include "ccsds/ccsds_profile.h"
 #include "ccsds/ccsds_router.h"
+#include "ccsds/ccsds_rnd.h"
 #include "ccsds/ccsds_rs.h"
 #include "ccsds/ccsds_space_packet.h"
 #include "ccsds/ccsds_tc_frame.h"

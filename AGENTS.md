@@ -35,7 +35,10 @@ limitations under active development, and future work.
 
 # Error handling rule
 
-
+For embedded code, use assertions for programmer contract violations when the
+caller has no meaningful runtime recovery path. Reserve error returns for
+recoverable runtime conditions or inputs that are expected to vary in normal
+operation. Functions without meaningful error returns should return void
 
 # Task focus
 

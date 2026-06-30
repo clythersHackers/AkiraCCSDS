@@ -40,10 +40,8 @@ int ccsds_tc_udp_input_start(struct ccsds_profile_tc_rx *profile);
 
 /**
  * @brief Stop the UDP TC input listener.
- *
- * @return 0 on success.
  */
-int ccsds_tc_udp_input_stop(void);
+void ccsds_tc_udp_input_stop(void);
 
 /**
  * @brief Copy current UDP TC input transport counters.

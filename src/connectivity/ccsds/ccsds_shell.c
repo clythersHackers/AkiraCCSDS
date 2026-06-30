@@ -129,37 +129,26 @@ static bool shell_tm_is_initialized(void)
     return initialized;
 }
 
-static int ensure_tc_profile_initialized(void)
+static void ensure_tc_profile_initialized(void)
 {
-    int ret;
-
     if (tc_rx_profile_initialized) {
-        return 0;
+        return;
     }
 
-    ret = ccsds_router_init(&tc_router);
-    if (ret != 0) {
-        return ret;
-    }
-
-    ret = ccsds_profile_tc_rx_init(&tc_rx_profile, &tc_router);
-    if (ret != 0) {
-        return ret;
-    }
+    ccsds_router_init(&tc_router);
+    ccsds_profile_tc_rx_init(&tc_rx_profile, &tc_router);
 
     tc_rx_profile_initialized = true;
-
-    return 0;
 }
 
-static int register_tc_clcw_provider_if_ready(void)
+static void register_tc_clcw_provider_if_ready(void)
 {
     if (!tc_rx_profile_initialized || !shell_tm_is_initialized()) {
-        return 0;
+        return;
     }
 
-    return ccsds_tm_frame_set_clcw_provider(ccsds_profile_tc_clcw_provider,
-                                            &tc_rx_profile);
+    ccsds_tm_frame_set_clcw_provider(ccsds_profile_tc_clcw_provider,
+                                     &tc_rx_profile);
 }
 
 static bool shell_tm_route_mask_available(ccsds_tm_route_mask_t route_mask)
@@ -354,12 +343,9 @@ int ccsds_shell_tm_init(void)
 
     status_lock_init_once();
 
-    (void)ccsds_time_packet_stop();
+    ccsds_time_packet_stop();
 
-    ret = ccsds_tm_frame_init();
-    if (ret != 0) {
-        return ret;
-    }
+    ccsds_tm_frame_init();
 
     ret = ccsds_tm_frame_register_route(CCSDS_TM_ROUTE_LOG, log_route, NULL);
     if (ret != 0) {
@@ -371,10 +357,7 @@ int ccsds_shell_tm_init(void)
         return ret;
     }
 
-    ret = ensure_tc_profile_initialized();
-    if (ret != 0) {
-        return ret;
-    }
+    ensure_tc_profile_initialized();
 
     k_mutex_lock(&status_lock, K_FOREVER);
     memset(&tm_status, 0, sizeof(tm_status));
@@ -382,10 +365,7 @@ int ccsds_shell_tm_init(void)
     tm_status.time_vcid = CCSDS_SHELL_TIME_VCID;
     k_mutex_unlock(&status_lock);
 
-    ret = register_tc_clcw_provider_if_ready();
-    if (ret != 0) {
-        return ret;
-    }
+    register_tc_clcw_provider_if_ready();
 
     return 0;
 }
@@ -403,15 +383,12 @@ int ccsds_shell_tm_start(void)
     }
     k_mutex_unlock(&status_lock);
 
-    ret = ccsds_tm_frame_start(CCSDS_SHELL_TM_ACTIVE_DELAY,
-                               CCSDS_SHELL_TM_IDLE_DELAY);
-    if (ret != 0) {
-        return ret;
-    }
+    ccsds_tm_frame_start(CCSDS_SHELL_TM_ACTIVE_DELAY,
+                         CCSDS_SHELL_TM_IDLE_DELAY);
 
     ret = ccsds_time_packet_start(CCSDS_SHELL_TIME_VCID);
     if (ret != 0) {
-        (void)ccsds_tm_frame_stop();
+        ccsds_tm_frame_stop();
         return ret;
     }
 
@@ -423,23 +400,15 @@ int ccsds_shell_tm_start(void)
     return 0;
 }
 
-int ccsds_shell_tm_stop(void)
+void ccsds_shell_tm_stop(void)
 {
-    int ret;
-    int tm_ret;
-
-    ret = ccsds_time_packet_stop();
-    tm_ret = ccsds_tm_frame_stop();
-    if (ret == 0) {
-        ret = tm_ret;
-    }
+    ccsds_time_packet_stop();
+    ccsds_tm_frame_stop();
 
     status_lock_init_once();
     k_mutex_lock(&status_lock, K_FOREVER);
     tm_status.running = false;
     k_mutex_unlock(&status_lock);
-
-    return ret;
 }
 
 void ccsds_shell_tm_get_status(struct ccsds_shell_tm_status *status)
@@ -488,16 +457,10 @@ static int cmd_ccsds_tm_start(const struct shell *sh, size_t argc, char **argv)
 
 static int cmd_ccsds_tm_stop(const struct shell *sh, size_t argc, char **argv)
 {
-    int ret;
-
     ARG_UNUSED(argc);
     ARG_UNUSED(argv);
 
-    ret = ccsds_shell_tm_stop();
-    if (ret != 0) {
-        shell_error(sh, "ccsds tm stop failed: %d", ret);
-        return ret;
-    }
+    ccsds_shell_tm_stop();
 
     shell_print(sh, "ccsds tm stopped");
     return 0;
@@ -779,16 +742,10 @@ static int cmd_ccsds_tc_stop_udp(const struct shell *sh, size_t argc,
                                  char **argv)
 {
 #ifdef CONFIG_NETWORKING
-    int ret;
-
     ARG_UNUSED(argc);
     ARG_UNUSED(argv);
 
-    ret = ccsds_tc_udp_input_stop();
-    if (ret != 0) {
-        shell_error(sh, "ccsds tc udp stop failed: %d", ret);
-        return ret;
-    }
+    ccsds_tc_udp_input_stop();
 
     shell_print(sh, "ccsds tc udp stopped");
     return 0;

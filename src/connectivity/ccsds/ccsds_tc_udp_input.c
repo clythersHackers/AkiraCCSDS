@@ -142,7 +142,7 @@ int ccsds_tc_udp_input_start(struct ccsds_profile_tc_rx *profile)
     return 0;
 }
 
-int ccsds_tc_udp_input_stop(void)
+void ccsds_tc_udp_input_stop(void)
 {
     int fd;
 
@@ -155,8 +155,6 @@ int ccsds_tc_udp_input_stop(void)
     if (fd >= 0) {
         (void)zsock_close(fd);
     }
-
-    return 0;
 }
 
 void ccsds_tc_udp_input_get_stats(struct ccsds_tc_udp_input_stats *stats)

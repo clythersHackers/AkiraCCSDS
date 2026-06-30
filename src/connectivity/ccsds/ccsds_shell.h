@@ -46,10 +46,8 @@ int ccsds_shell_tm_start(void);
 
 /**
  * @brief Stop shell-managed TM frame and time packet services.
- *
- * @return 0 on success.
  */
-int ccsds_shell_tm_stop(void);
+void ccsds_shell_tm_stop(void);
 
 /**
  * @brief Copy the current shell-managed TM status.

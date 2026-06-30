@@ -126,21 +126,17 @@ int ccsds_time_packet_start(uint8_t vcid)
     return 0;
 }
 
-int ccsds_time_packet_stop(void)
+void ccsds_time_packet_stop(void)
 {
     time_packet_init_once();
     time_packet_running = false;
     (void)k_work_cancel_delayable(&time_packet_work);
-
-    return 0;
 }
 
 #ifdef CONFIG_ZTEST
-int ccsds_time_packet_test_enqueue_now(void)
+void ccsds_time_packet_test_enqueue_now(void)
 {
     time_packet_init_once();
     time_packet_work_handler(&time_packet_work.work);
-
-    return 0;
 }
 #endif

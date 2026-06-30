@@ -767,6 +767,15 @@ config AKIRA_CCSDS_RS_INTERLEAVE_DEPTH
       commonly uses I=5, producing 1115 data symbols and 160 parity symbols
       for the RS(255,223) code.
 
+config AKIRA_CCSDS_RND
+    bool "Enable CCSDS randomization primitive"
+    default n
+    depends on AKIRA_CCSDS_FRAME_SUPPORT
+    help
+      Enable the CCSDS randomization primitive used by channel coding profiles.
+      When disabled, the randomizer source file is not compiled into the
+      executable.
+
 config AKIRA_CCSDS_TM_FECF
     bool "Enable CCSDS TM Frame Error Control Field"
     default y if !AKIRA_CCSDS_RS

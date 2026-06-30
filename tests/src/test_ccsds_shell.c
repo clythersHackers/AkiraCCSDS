@@ -26,7 +26,7 @@ static void shell_setup(void *fixture)
 {
     ARG_UNUSED(fixture);
 
-    zassert_ok(ccsds_shell_tm_stop());
+    ccsds_shell_tm_stop();
 }
 
 ZTEST(ccsds_shell, test_init_registers_log_destination_without_default_routes)
@@ -87,7 +87,7 @@ ZTEST(ccsds_shell, test_start_and_stop_control_tm_generator)
     zassert_true(status.running);
     zassert_equal(status.time_vcid, 0u);
 
-    zassert_ok(ccsds_shell_tm_stop());
+    ccsds_shell_tm_stop();
     zassert_false(ccsds_tm_frame_test_is_running());
 
     ccsds_shell_tm_get_status(&status);
