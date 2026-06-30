@@ -6,3 +6,13 @@ tests:
     timeout: 120
     min_ram: 512
     filter: CONFIG_ZTEST
+  akiraos.tests.ccsds_rnd:
+    tags: akiraos ccsds randomization
+    platform_allow: native_sim
+    harness: ztest
+    timeout: 120
+    min_ram: 512
+    filter: CONFIG_ZTEST
+    extra_configs:
+      - CONFIG_AKIRA_CCSDS_RND=y
+      - CONFIG_AKIRA_CCSDS_TM_RND=y

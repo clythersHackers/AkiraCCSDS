@@ -12,6 +12,9 @@
 #include <zephyr/sys/util.h>
 
 #include "ccsds_profile.h"
+#ifdef CONFIG_AKIRA_CCSDS_TM_RND
+#include "ccsds_rnd.h"
+#endif
 #include "ccsds_router.h"
 #ifdef CONFIG_NETWORKING
 #include "ccsds_tc_udp_input.h"
@@ -68,6 +71,10 @@ static void parse_output_metadata(const uint8_t *frame, size_t frame_len,
                                   bool *cadu, uint8_t *mcfc, uint8_t *vcfc,
                                   uint16_t *fhp)
 {
+    const uint8_t *tm_header;
+#ifdef CONFIG_AKIRA_CCSDS_TM_RND
+    uint8_t decoded_header[CCSDS_SHELL_TM_PRIMARY_HDR_LEN];
+#endif
     size_t frame_offset;
 
     *cadu = output_has_asm(frame, frame_len);
@@ -81,9 +88,18 @@ static void parse_output_metadata(const uint8_t *frame, size_t frame_len,
         return;
     }
 
-    *mcfc = frame[frame_offset + 2u];
-    *vcfc = frame[frame_offset + 3u];
-    *fhp = read_be16(&frame[frame_offset + 4u]) & 0x07ffu;
+    tm_header = &frame[frame_offset];
+#ifdef CONFIG_AKIRA_CCSDS_TM_RND
+    if (*cadu) {
+        memcpy(decoded_header, tm_header, sizeof(decoded_header));
+        ccsds_rnd_apply(decoded_header, sizeof(decoded_header));
+        tm_header = decoded_header;
+    }
+#endif
+
+    *mcfc = tm_header[2];
+    *vcfc = tm_header[3];
+    *fhp = read_be16(&tm_header[4]) & 0x07ffu;
 }
 
 static int log_route(uint8_t vcid, const uint8_t *frame, size_t frame_len,

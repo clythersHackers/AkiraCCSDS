@@ -776,6 +776,25 @@ config AKIRA_CCSDS_RND
       When disabled, the randomizer source file is not compiled into the
       executable.
 
+config AKIRA_CCSDS_TM_RND
+    bool "Apply CCSDS randomization to TM channel frames"
+    default n
+    depends on AKIRA_CCSDS_FRAME_SUPPORT
+    select AKIRA_CCSDS_RND
+    help
+      Randomize emitted TM CADUs after the attached synchronization marker.
+      When Reed-Solomon is enabled, the RS parity bytes are randomized too.
+
+config AKIRA_CCSDS_TC_RND
+    bool "Apply CCSDS derandomization to TC transfer frames"
+    default n
+    depends on AKIRA_CCSDS_FRAME_SUPPORT
+    select AKIRA_CCSDS_RND
+    help
+      Derandomize decoded TC transfer-frame bytes after CLTU decoding and
+      before TC frame parsing. CLTU start, tail, and BCH parity are not part
+      of the randomized byte stream.
+
 config AKIRA_CCSDS_TM_FECF
     bool "Enable CCSDS TM Frame Error Control Field"
     default y if !AKIRA_CCSDS_RS
