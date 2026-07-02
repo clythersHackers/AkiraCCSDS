@@ -723,17 +723,8 @@ static int cmd_ccsds_tc_start_udp(const struct shell *sh, size_t argc,
     ARG_UNUSED(argc);
     ARG_UNUSED(argv);
 
-    ret = ensure_tc_profile_initialized();
-    if (ret != 0) {
-        shell_error(sh, "ccsds tc profile init failed: %d", ret);
-        return ret;
-    }
-
-    ret = register_tc_clcw_provider_if_ready();
-    if (ret != 0) {
-        shell_error(sh, "ccsds tc clcw provider init failed: %d", ret);
-        return ret;
-    }
+    ensure_tc_profile_initialized();
+    register_tc_clcw_provider_if_ready();
 
     ret = ccsds_tc_udp_input_start(&tc_rx_profile);
     if (ret != 0) {

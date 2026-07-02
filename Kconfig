@@ -715,7 +715,7 @@ config AKIRA_CCSDS_TM_MAX_SPACE_PACKET_LEN
 
 config AKIRA_CCSDS_TC_MAX_SPACE_PACKET_LEN
     int "Maximum CCSDS TC Space Packet length"
-    default 4096
+    default 2048
     range 7 65535
     depends on AKIRA_CCSDS_FRAME_SUPPORT
     help

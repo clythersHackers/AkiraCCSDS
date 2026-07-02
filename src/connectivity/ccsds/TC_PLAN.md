@@ -226,24 +226,65 @@ Current intended behavior:
 When networking is disabled, shell/status commands should report TC UDP input
 as unavailable rather than failing ambiguously.
 
-## TC Packet Reassembly
+## Completed Phase: TC Segmentation And Reassembly
 
-After frame decode and COP-1/FARM acceptance are testable, add a TC packet
-reassembly module, for example:
+TC receive now decodes the TC segment header after TC frame acceptance and
+before APID dispatch. The segment header is one byte: two packet boundary bits
+and a six-bit MAP ID.
+
+Supported receiver contract:
+
+- Unsegmented TC segments may contain one or more complete TC Space Packets
+  when they fit in the segment data field.
+- Segmented TC Space Packets use one active reassembly stream at a time.
+- A ground system must complete transmission of a segmented packet on its MAP
+  ID before starting another segmented packet on a different MAP ID.
+- Segmented packets must be isolated from other packet starts: the first
+  segment contains the complete Space Packet primary header and the first
+  packet bytes, optional continuation segments contain only middle bytes, and
+  the last segment contains only the final bytes of that same packet.
+- Segmentation and aggregation may not occur in the same segment.
+
+The reassembly buffer is owned by `struct ccsds_profile_tc_rx` and is bounded
+by `CONFIG_AKIRA_CCSDS_TC_MAX_SPACE_PACKET_LEN`. Segmented packets that exceed
+this limit are rejected.
+
+Implemented files:
+
+```text
+src/connectivity/ccsds/ccsds_tc_segment.h
+src/connectivity/ccsds/ccsds_tc_segment.c
+src/connectivity/ccsds/ccsds_profile.h
+src/connectivity/ccsds/ccsds_profile.c
+```
+
+Tests cover segment header decode, aggregated complete packets, rejected mixed
+segmentation/aggregation forms, and an end-to-end segmented TC packet passing
+through CLTU decode, TC frame decode, COP-1 acceptance, reassembly, and APID
+router dispatch.
+
+## Future TC Packet Reassembly Options
+
+If multiple active MAP IDs, richer diagnostics, or independent reassembly
+testing become necessary, split the profile-local reassembly state into a
+dedicated module, for example:
 
 ```text
 src/connectivity/ccsds/ccsds_tc_reassembly.h
 src/connectivity/ccsds/ccsds_tc_reassembly.c
 ```
 
-Responsibilities:
+Possible responsibilities:
 
 - Maintain partial packet state across accepted TC frames.
-- Decode Space Packet primary headers only after enough bytes are available.
+- Support multiple active MAP IDs if a future profile needs interleaved
+  segmented packet streams.
 - Enforce `CONFIG_AKIRA_CCSDS_TC_MAX_SPACE_PACKET_LEN`.
 - Emit complete encoded Space Packet bytes or decoded packet views.
 - Reset cleanly after malformed length, overflow, or explicit resync.
 - Dispatch complete packets through `ccsds_router`.
+- Optionally support future profile rules such as complete short packets after
+  the final bytes of a segmented packet in a LAST segment.
 
 The existing `ccsds_tc_frame_extract_packet()` can remain as a narrow helper for
 single-packet tests, but it should not be the long-term reassembly boundary.
@@ -262,24 +303,24 @@ Initial candidates:
 These handlers should live outside the CCSDS parser/decoder modules. They are
 platform behavior selected by AkiraOS, not CCSDS protocol mechanics.
 
-## Suggested First Implementation Slice
+## Current Implementation Status
 
 1. [x] Rename the existing TM plan to `TM_PLAN.md`.
 2. [x] Add this `TC_PLAN.md`.
-3. [ ] Add focused tests using supplied complete CLTU vectors.
+3. [x] Add focused tests using supplied complete CLTU vectors.
 4. [x] Add CLTU tail-sequence detection, validation, stripping, and tests.
 5. [x] Implement TC frame decode enough to reject malformed input and wrong
    spacecraft IDs.
-6. [x] Detect control frames and return a clear unsupported-control result until
-   exact handling is implemented from references.
-7. [ ] Add minimal COP-1/FARM acceptance and CLCW-producing state in the TC
+6. [x] Detect TC control frames and handle the supported UNLOCK and SET VR
+   commands.
+7. [x] Add minimal COP-1/FARM acceptance and CLCW-producing state in the TC
    frame path.
-8. [ ] Add a CLCW provider and inject its value into TM OCF.
-9. [ ] Add tests proving generated TM output carries the expected CLCW.
+8. [x] Add a CLCW provider and inject its value into TM OCF.
+9. [x] Add tests proving generated TM output carries the expected CLCW.
 10. [x] Add UDP input for complete CLTU datagrams when
     `CONFIG_NETWORKING=y`.
-11. [ ] Add tests/status polish for UDP input.
-12. [ ] Add TC packet reassembly.
+11. [ ] Add tests/status polish for UDP TC input.
+12. [x] Add TC packet reassembly.
 13. [ ] Add harmless core-platform test APIDs.
 
 ## Suggested Tests
@@ -306,6 +347,7 @@ platform behavior selected by AkiraOS, not CCSDS protocol mechanics.
 - TC packet reassembly emits one complete Space Packet from an accepted frame.
 - TC packet reassembly emits one complete Space Packet split across accepted
   frames.
+- TC segmentation rejects mixed segmentation and aggregation in one segment.
 - Core test APID receives a no-op or ping packet through the router.
 
 ## Open Questions
