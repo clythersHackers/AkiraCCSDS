@@ -687,6 +687,16 @@ if(CONFIG_AKIRA_CCSDS)
         src/connectivity/ccsds/ccsds_space_packet.c
     )
 
+    if(CONFIG_AKIRA_CCSDS_CFDP)
+        set(AKIRA_CCSDS_CFDP_SOURCES
+            src/connectivity/ccsds/ccsds_cfdp_pdu.c
+        )
+
+        if(AKIRA_CCSDS_CFDP_SOURCES)
+            target_sources(app PRIVATE ${AKIRA_CCSDS_CFDP_SOURCES})
+        endif()
+    endif()
+
     if(CONFIG_AKIRA_CCSDS_FRAME_SUPPORT)
         target_sources(app PRIVATE
             src/connectivity/ccsds/ccsds_bch.c

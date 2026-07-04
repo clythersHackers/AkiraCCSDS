@@ -676,6 +676,67 @@ config AKIRA_CCSDS_FRAME_SUPPORT
       and profile glue. Disable this for packet-only deployments where the
       selected link carries CCSDS Space Packets directly.
 
+config AKIRA_CCSDS_CFDP
+    bool "Enable CCSDS CFDP support"
+    default n
+    help
+      Enable the CCSDS File Delivery Protocol compile skeleton. The initial
+      subset exposes constants, configuration limits, protocol enums, and
+      status codes only; PDU codecs and transfer state are added separately.
+
+config AKIRA_CCSDS_CFDP_MAX_ENTITY_ID_LEN
+    int "Maximum CFDP entity ID length"
+    default 4
+    range 1 8
+    depends on AKIRA_CCSDS_CFDP
+    help
+      Maximum CFDP entity identifier length in octets. This is a local memory
+      limit, not a protocol limit.
+
+config AKIRA_CCSDS_CFDP_MAX_TRANS_SEQ_LEN
+    int "Maximum CFDP transaction sequence number length"
+    default 4
+    range 1 8
+    depends on AKIRA_CCSDS_CFDP
+    help
+      Maximum CFDP transaction sequence number length in octets. This is a
+      local memory limit, not a protocol limit.
+
+config AKIRA_CCSDS_CFDP_MAX_FILENAME_LEN
+    int "Maximum CFDP file name length"
+    default 64
+    range 0 255
+    depends on AKIRA_CCSDS_CFDP
+    help
+      Maximum source or destination file name length accepted by the planned
+      CFDP subset.
+
+config AKIRA_CCSDS_CFDP_MAX_PDU_SIZE
+    int "Maximum CFDP PDU size"
+    default 512
+    range 64 65535
+    depends on AKIRA_CCSDS_CFDP
+    help
+      Maximum encoded CFDP PDU size in octets for fixed caller-owned buffers.
+
+config AKIRA_CCSDS_CFDP_MAX_SEGMENT_SIZE
+    int "Maximum CFDP file data segment size"
+    default 384
+    range 1 65535
+    depends on AKIRA_CCSDS_CFDP
+    help
+      Maximum file data segment payload in octets. Keep this plus CFDP header
+      and directive overhead below the configured Space Packet payload limit.
+
+config AKIRA_CCSDS_CFDP_MAX_NAK_RANGES
+    int "Maximum CFDP NAK ranges"
+    default 4
+    range 1 64
+    depends on AKIRA_CCSDS_CFDP
+    help
+      Maximum missing-data ranges reserved for the later limited NAK recovery
+      subset.
+
 config AKIRA_CCSDS_MAX_CLTU_LEN
     int "Maximum CCSDS CLTU length"
     default 1024
