@@ -17,7 +17,7 @@ Board: akiraconsole_esp32s3_procpu
 Host: Fedora Linux
 Container: VS Code devcontainer
 Build command: ./build.sh -b akiraconsole
-CCSDS verification build command: ./build.sh -b akiraconsole -ccsds
+CCSDS verification build command: ./build.sh -b akiraconsole --ccsds
 
 # Debugging rule
 

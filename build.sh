@@ -14,7 +14,7 @@
 #   -e              Erase flash before flashing
 #   -s              Generate SBOM (Software Bill of Materials)
 #   -c              Clean build artifacts
-#   -ccsds          Enable experimental CCSDS protocol codecs
+#   --ccsds         Enable experimental CCSDS protocol codecs
 #   --full-clean    Reset to pristine state (remove all build dirs)
 #   -h, --help      Show this help message
 #
@@ -147,7 +147,7 @@ ${BOLD}OPTIONS:${NC}
     -c              Clean build artifacts for selected board
     --full-clean    Reset to pristine state (remove ALL build dirs)
     --platform      Enable AkiraPlatform enterprise features
-    -ccsds          Enable experimental CCSDS protocol codecs
+    --ccsds         Enable experimental CCSDS protocol codecs
     -p <port>       Serial port for flashing (default: auto-detect)
     --baud <rate>   Baud rate for flashing (default: 921600)
     -h, --help      Show this help message
@@ -169,7 +169,7 @@ ${BOLD}EXAMPLES:${NC}
     ./build.sh -b akiraconsole
         Build AkiraOS for Akira Console (ESP32-S3)
 
-    ./build.sh -b akiraconsole -ccsds
+    ./build.sh -b akiraconsole --ccsds
         Build AkiraOS with experimental CCSDS protocol codecs enabled
 
     ./build.sh -b akiraconsole -bl y
@@ -876,7 +876,7 @@ main() {
     if [[ "$BOARD" != "native_sim" && -z "$FLASH_TARGET" ]]; then
         local feature_args=""
         if [[ "$ENABLE_CCSDS" == true ]]; then
-            feature_args+=" -ccsds"
+            feature_args+=" --ccsds"
         fi
         echo ""
         echo -e "${BOLD}Next steps:${NC}"

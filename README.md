@@ -10,31 +10,48 @@ modules that can be installed or updated without reflashing the OS.
 AkiraCCSDS keeps that base intact and adds experimental CCSDS telemetry,
 telecommand, and file-transfer support under `src/connectivity/ccsds`.
 
+For the base checkout, Zephyr workspace setup, board configuration, and normal
+AkiraOS build flow, start with the [AkiraOS documentation](https://docs.akiraos.dev)
+and upstream repository. Once AkiraOS builds for your board, or for
+`native_sim`, use this fork's `--ccsds` build option to enable the CCSDS work.
+
 ## Why This Is Interesting
 
 Default AkiraOS application upload and management flows are HTTP-oriented. That
 is convenient for terrestrial development, but it is not how spacecraft are
 normally commanded, monitored, or loaded with files.
 
-AkiraCCSDS explores a different control path: use CCSDS-style telemetry and
-telecommand for command and control, and use CFDP for file uplink and downlink.
-In other words, keep the useful AkiraOS runtime model, but operate it through
-protocols that look more like a space operations link.
+AkiraCCSDS keeps the useful AkiraOS runtime model, but explores a different
+control path: CCSDS telemetry and telecommand for command and control, and CFDP
+for file uplink and downlink.
 
 The longer-term integration idea is to connect AkiraOS pub/sub messaging to
-ground-side pub/sub protocols such as NATS or MQTT. Ground software could then
-publish commands or data products into a secure messaging fabric, while the
-onboard side receives only the CCSDS/CFDP traffic appropriate for the embedded
-link and application model.
+ground-side pub/sub protocols such as NATS or MQTT. These systems are often
+carried over sockets, but their useful IoT model is still message-oriented:
+publish a reading, send a command, forward an event, or deliver a bounded
+payload. That maps more naturally to CCSDS Space Packets than raw TCP streams,
+because commands, telemetry samples, file segments, and app messages already
+have packet boundaries.
 
 ![IoT and CCSDS architecture sketch](src/connectivity/ccsds/IoTwithCCSDS.svg)
 
-That may be simpler than trying to tunnel general IP over CCSDS. Instead of
-making the spacecraft link pretend to be an IP network, AkiraCCSDS can map
-application-level commands, telemetry, files, and messages onto the CCSDS
-services that are already meant for constrained, delayed, or radio-carried
-operations.
+This may be simpler than tunneling general IP over CCSDS. Instead of making the
+space link pretend to be an IP network, AkiraCCSDS maps application-level
+commands, telemetry, files, and messages onto CCSDS services meant for
+constrained, delayed, or radio-carried operations.
 
+There are more general space-networking approaches, including Bundle Protocol
+and convergence layers over CCSDS links such as USLP. Those are powerful, but
+they bring a larger networking stack and operational model. AkiraCCSDS starts
+from the smaller embedded case: direct use of CCSDS packet and CFDP services.
+
+Small-satellite protocols such as CSP are also practical for embedded links.
+AkiraCCSDS leans toward CCSDS because it is established, standardized,
+interoperable, and widely supported by space link tooling and modems. It also
+brings a broader operations vocabulary, including TM/TC packetization, time,
+security services, and CFDP file delivery. CSP's core is much thinner, so
+services such as file transfer, beacons, and operations interfaces are often
+proprietary or mission-specific.
 
 ## Fork Focus
 
@@ -62,7 +79,7 @@ Key fork-specific files:
 | ---- | ------- |
 | `src/connectivity/ccsds/` | CCSDS protocol implementation |
 | `src/connectivity/ccsds/USER_MANUAL.md` | Supported CCSDS shell workflows |
-| `configs/ccsds.conf` | Opt-in CCSDS Kconfig fragment used by `build.sh -ccsds` |
+| `configs/ccsds.conf` | Opt-in CCSDS Kconfig fragment used by `build.sh --ccsds` |
 
 Upstream AkiraOS documentation remains relevant for the base OS, WASM runtime,
 SDK, board support, and general build system:
@@ -89,10 +106,10 @@ Build the AkiraConsole firmware:
 Build with CCSDS enabled:
 
 ```bash
-./build.sh -b akiraconsole -ccsds
+./build.sh -b akiraconsole --ccsds
 ```
 
-The `-ccsds` flag applies `configs/ccsds.conf`, which currently enables:
+The `--ccsds` flag applies `configs/ccsds.conf`, which currently enables:
 
 ```text
 CONFIG_AKIRA_CCSDS=y

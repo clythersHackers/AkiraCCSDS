@@ -513,7 +513,7 @@ Manual activation status:
 - No boot/init path calls `ccsds_tm_frame_start()`.
 - Booting the ESP32-S3 will not start the generator or transmit CCSDS TM.
 - Native tests build and run the CCSDS shell helper coverage.
-- `./build.sh -b akiraconsole -ccsds` links successfully with the bounded
+- `./build.sh -b akiraconsole --ccsds` links successfully with the bounded
   2048-byte default TM packet/queue profile.
 
 The packet-bearing implementation produces one output frame per active generator
