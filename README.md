@@ -1,268 +1,148 @@
-<div align="center">
+# AkiraCCSDS
 
-<img src="assets/logo.png" alt="AkiraOS Logo" width="300"/>
+AkiraCCSDS is a fork of [AkiraOS](https://github.com/ArturR0k3r/AkiraOS).
 
-# AkiraOS
+AkiraOS is a Zephyr-based embedded operating system for microcontrollers that
+runs sandboxed WebAssembly applications. The upstream project focuses on keeping
+device firmware stable while applications are delivered as isolated `.wasm`
+modules that can be installed or updated without reflashing the OS.
 
-**WebAssembly Runtime for Microcontrollers**
+AkiraCCSDS keeps that base intact and adds experimental CCSDS telemetry,
+telecommand, and file-transfer support under `src/connectivity/ccsds`.
 
-Every app is a sandboxed `.wasm` module. Deploy over-the-air. No firmware flash required.
+## Why This Is Interesting
 
-[![Version](https://img.shields.io/badge/version-1.5.x-7f5af0?style=flat-square)](https://github.com/ArturR0k3r/AkiraOS/releases)
-[![Zephyr](https://img.shields.io/badge/Zephyr-4.3.0-3b82f6?style=flat-square)](https://zephyrproject.org)
-[![WAMR](https://img.shields.io/badge/WAMR-2.x-22c55e?style=flat-square)](https://github.com/bytecodealliance/wasm-micro-runtime)
-[![License](https://img.shields.io/badge/license-Apache%202.0-22c55e?style=flat-square)](LICENSE)
-[![OSHWA](https://img.shields.io/badge/OSHWA-MD000003-f59e0b?style=flat-square)](https://certification.oshwa.org/md000003.html)
-[![Stars](https://img.shields.io/github/stars/ArturR0k3r/AkiraOS?style=flat-square&color=7f5af0)](https://github.com/ArturR0k3r/AkiraOS/stargazers)
-[![codecov](https://codecov.io/gh/ArturR0k3r/AkiraOS/branch/main/graph/badge.svg)](https://codecov.io/gh/ArturR0k3r/AkiraOS)
+Default AkiraOS application upload and management flows are HTTP-oriented. That
+is convenient for terrestrial development, but it is not how spacecraft are
+normally commanded, monitored, or loaded with files.
 
-[**Quick Start**](#quick-start) · [**Architecture**](#architecture) · [**AkiraSDK**](#wasm-app-development) · [**Hardware**](#supported-hardware) · [**Docs**](https://docs.akiraos.dev)
+AkiraCCSDS explores a different control path: use CCSDS-style telemetry and
+telecommand for command and control, and use CFDP for file uplink and downlink.
+In other words, keep the useful AkiraOS runtime model, but operate it through
+protocols that look more like a space operations link.
 
-</div>
+The longer-term integration idea is to connect AkiraOS pub/sub messaging to
+ground-side pub/sub protocols such as NATS or MQTT. Ground software could then
+publish commands or data products into a secure messaging fabric, while the
+onboard side receives only the CCSDS/CFDP traffic appropriate for the embedded
+link and application model.
 
----
+![IoT and CCSDS architecture sketch](src/connectivity/ccsds/IoTwithCCSDS.svg)
 
-## What is AkiraOS?
+That may be simpler than trying to tunnel general IP over CCSDS. Instead of
+making the spacecraft link pretend to be an IP network, AkiraCCSDS can map
+application-level commands, telemetry, files, and messages onto the CCSDS
+services that are already meant for constrained, delayed, or radio-carried
+operations.
 
-AkiraOS is a Zephyr-based embedded OS that runs **sandboxed WebAssembly applications** on microcontrollers.
 
-The core idea: separate the OS from the application. The firmware stays stable. Apps are `.wasm` binaries — isolated, portable, and deployable over-the-air without touching the OS.
+## Fork Focus
 
+The CCSDS work in AkiraCCSDS is scoped to embedded, transport-neutral protocol
+support:
+
+- CCSDS Space Packet encode/decode helpers.
+- TM and TC transfer-frame support.
+- CLTU, BCH, Reed-Solomon, CRC-16, and optional randomization primitives.
+- APID routing for decoded Space Packets.
+- CFDP PDU, checksum, entity, range, and staging support.
+- Development shell commands for manually starting and inspecting TM/TC paths.
+- Development UDP adapters for TM output and TC input.
+- Interfaces that allow CCSDS I/O to be registered through different device
+  transports, such as UDP, UART, RF, CAN, BLE, or other board-specific links.
+
+The implementation is intentionally kept in the AkiraOS connectivity layer
+rather than redesigning the OS around CCSDS.
+
+## Repository Layout
+
+Key fork-specific files:
+
+| Path | Purpose |
+| ---- | ------- |
+| `src/connectivity/ccsds/` | CCSDS protocol implementation |
+| `src/connectivity/ccsds/USER_MANUAL.md` | Supported CCSDS shell workflows |
+| `configs/ccsds.conf` | Opt-in CCSDS Kconfig fragment used by `build.sh -ccsds` |
+
+Upstream AkiraOS documentation remains relevant for the base OS, WASM runtime,
+SDK, board support, and general build system:
+
+- [AkiraOS documentation](https://docs.akiraos.dev)
+- [Upstream AkiraOS repository](https://github.com/ArturR0k3r/AkiraOS)
+
+## Build
+
+The known target for AkiraCCSDS is:
+
+```text
+Board: akiraconsole_esp32s3_procpu
+Host: Fedora Linux
+Environment: VS Code devcontainer
 ```
-Your App (C/C++/Python)  →  compile  →  app.wasm  →  SecureDeploy  →  runs on device
-                                                              OS unchanged
-```
 
-**Why this matters:**
-- Update apps in the field without a firmware flash cycle
-- One binary runs on ESP32-S3, nRF5x, or STM32 — no recompile
-- Bad app crashes? Runtime catches it at the boundary. Device stays up.
-- Every app gets only the hardware access it explicitly requested
-
----
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────┐
-│              USER SPACE — WASM Apps                 │
-│   [app1.wasm]   [app2.wasm]   [your_app.wasm]       │
-│   50KB–200KB per app · max 8 installed · 2 running  │
-└──────────────────────┬──────────────────────────────┘
-                       │ capability-checked calls
-┌──────────────────────▼──────────────────────────────┐
-│              AKIRAZ RUNTIME                         │
-│  App Manager · Capability Guard · Native Bridge     │
-│  UI Framework (32 widgets) · Shell · 18 API modules │
-│  WAMR: interpreter (1x) or AOT (10–50x perf)        │
-└──────────┬──────────────────────┬───────────────────┘
-           │                      │
-┌──────────▼──────────┐  ┌───────▼───────────────────┐
-│  CONNECTIVITY       │  │  ZEPHYR RTOS               │
-│  HTTP · OTA         │  │  Scheduler · Network Stack  │
-│  BLE · AkiraMesh    │  │  Drivers · LittleFS         │
-└─────────────────────┘  └────────────────────────────┘
-```
-
-**Capability Guard** — every native API call goes through an inline permission check (~60ns overhead). Apps declare required capabilities in a manifest. No capability = no access. Period.
-
-```json
-{
-  "name": "my_sensor_app",
-  "capabilities": ["gpio.read", "display.write", "sensor.read"]
-}
-```
-
-Full architecture docs → [docs.akiraos.dev/architecture](https://docs.akiraos.dev/architecture)
-
----
-
-## Quick Start
-
-> **No hardware? No problem.** AkiraOS runs on `native_sim` — test everything on your Linux host first.
-
-### Prerequisites
-
-- Linux or WSL2 (Ubuntu 20.04+)
-- Python 3.8+
-- `west` — `pip install west`
-
-### 1 — Clone
+Build the AkiraConsole firmware:
 
 ```bash
-mkdir akira-workspace && cd akira-workspace
-git clone --recurse-submodules https://github.com/ArturR0k3r/AkiraOS.git
-cd AkiraOS
-west init -l . && cd .. && west update
+./build.sh -b akiraconsole
 ```
 
-### 2 — Install Zephyr SDK
+Build with CCSDS enabled:
 
 ```bash
-cd ~
-wget https://github.com/zephyrproject-rtos/sdk-ng/releases/download/v0.17.4/zephyr-sdk-0.17.4_linux-x86_64.tar.xz
-tar xvf zephyr-sdk-0.17.4_linux-x86_64.tar.xz
-cd zephyr-sdk-0.17.4 && ./setup.sh
+./build.sh -b akiraconsole -ccsds
 ```
 
-### 3 — Build and run
+The `-ccsds` flag applies `configs/ccsds.conf`, which currently enables:
 
-```bash
-cd akira-workspace/AkiraOS
-
-# Run on your host — no hardware needed
-./build.sh
-
-# Build and flash to ESP32-S3
-cd .. && west blobs fetch hal_espressif && cd AkiraOS
-./build.sh -b esp32s3_devkitm_esp32s3_procpu -r a
-west espmonitor
+```text
+CONFIG_AKIRA_CCSDS=y
+CONFIG_AKIRA_CCSDS_CFDP=y
 ```
 
-Full setup guide → [QUICKSTART.md](QUICKSTART.md)
+## CCSDS Shell Quick Reference
 
----
+When CCSDS shell support is enabled, TM output is manually controlled. Booting
+the board does not automatically start telemetry.
 
-## WASM App Development
+Basic TM workflow:
 
-Install the [AkiraSDK toolchain](AkiraSDK/README.md) (clang/wasi-sdk used as a cross-compiler only — AkiraOS apps target the AkiraZ native API, not a WASI runtime), then:
-
-```bash
-# Build your first app
-cd AkiraSDK/wasm_apps/hello_world
-../../build_wasm_app.sh -o hello_world.wasm main.c
-
-# Deploy to a running device over WiFi — no reflash needed
-curl -X POST -F "file=@hello_world.wasm" http://<device-ip>/upload
+```text
+ccsds tm init
+ccsds tm route info
+ccsds tm route set 0 log
+ccsds tm route set 7 log
+ccsds tm start
+ccsds tm status
+ccsds tm stop
 ```
 
-**Example apps in `AkiraSDK/wasm_apps/`:**
+Development UDP TC input treats each received datagram as one complete CLTU:
 
-| App | Description |
-|-----|-------------|
-| `hello_world` | Minimal starter |
-| `sensor_demo` | Read hardware sensors |
-| `display_graphics` | Graphics rendering |
-| `gui_demo` | Full UI with 32 widget types |
-| `hid_keyboard_demo` | USB HID input |
-| `blink_led` | GPIO control |
-| `logic_analyzer` | Data capture |
-
-**Native API Modules (18 total):** BLE · Display · GPIO · HID · I2C · IPC · Lifecycle · Memory · Net · Power · PWM · RF · Sensor · Storage · Timer · UART · and more.
-
-Full API reference → [docs.akiraos.dev/api-reference](https://docs.akiraos.dev/api-reference)
-
----
-
-## Supported Hardware
-
-| Platform | Status | Architecture | Tier | Notes |
-|----------|--------|-------------|------|-------|
-| **AkiraConsole** | ✅ Supported | Xtensa LX7 | Tier 1 | ESP32-S3 · Custom HW |
-| ESP32 | ✅ Supported | Xtensa LX7 / RISC-V | Tier 1 | -S3 (LX7) · -H2 · -C6 (RISC-V) |
-| native\_sim | ✅ Supported | Host (x86\_64) | Tier 1 | Fast iteration, no hardware needed |
-| nRF54L15 | ✅ Supported | ARM Cortex-M33 | Tier 2 | BLE 5.4 · Nordic |
-| STM32 | ✅ Supported | ARM Cortex-M | Tier 2 | B-U585I-IOT02A · STEVAL-STWINBX1 · H753 · H723 |
-
-
-**Recommended:** ESP32-S3 DevKitM — or [AkiraConsole V3](https://akiraos.dev/akiraconsole) (coming to CrowdSupply).
-
----
-
-## AkiraConsole
-
-The reference hardware platform for AkiraOS.
-
-**V3 - OSHWA Certified — UID: [MD000003](https://certification.oshwa.org/md000003.html)**
-
-**Rev A.2:** CrowdSupply campaign coming soon.
-
-→ ESP32-S3 dual-core 240MHz · 8MB PSRAM
-→ TFT display · ~33 FPS in AkiraOS
-→ 8 tactile buttons · Dial
-→ CC1121 sub-GHz radio · LR2021 LoRa
-→ MicroSD · USB-C · Expansion headers
-
-[akiraos.dev/akiraconsole](https://akiraos.dev/akiraconsole)
-
----
-
-## What's in v1.5.x
-
-125 commits · 350 files · ~40,600 lines of changes
-
-- **WAMR Runtime** replaces legacy OCRE engine
-- **Capability Guard** security model — per-app permission enforcement  
-- **Full WASM Peripheral API** — GPIO, Display, BLE, HID, Sensors, Storage
-- **AkiraSDK** as independent git submodule
-- **AkiraConsole** board bringup complete
-
-[Full changelog →](CHANGELOG.md)
-
----
-
-## Build System
-
-```bash
-./build.sh -b esp32s3_devkitm_esp32s3_procpu        # ESP32-S3
-./build.sh -b esp32_devkitc_procpu                  # ESP32
-./build.sh -b esp32c3_devkitm                       # ESP32-C3
-./build.sh -b native_sim                            # Simulation
-./build.sh -b esp32s3_devkitm_esp32s3_procpu -r all # Clean rebuild
+```text
+ccsds tc start udp
+ccsds tc status
+ccsds tc stop udp
 ```
 
-Key config files: `prj.conf` · `boards/*.conf` · `boards/*.overlay` · `west.yml`
+See [src/connectivity/ccsds/USER_MANUAL.md](src/connectivity/ccsds/USER_MANUAL.md)
+for the supported user-facing CCSDS shell behavior.
 
----
+## Development Notes
 
-## Security Model
+AkiraCCSDS follows the upstream AkiraOS and Zephyr structure. CCSDS changes
+should stay narrowly scoped to `src/connectivity/ccsds` and the minimal build
+integration needed to compile that feature.
 
-1. **WASM Sandboxing** — no direct memory access to kernel space, stack/heap isolated per app
-2. **Capability Guard** — inline checks on every native API call, manifest-declared permissions
-3. **Secure Boot** — MCUboot validates firmware signature, WAMR validates module checksum
-4. **OTA Security** — SHA-256 integrity, atomic updates, rollback on failure
+For embedded code in AkiraCCSDS:
 
-[Security architecture →](https://docs.akiraos.dev/architecture/security.html)
+- Use assertions for programmer contract violations when callers have no useful
+  runtime recovery path.
+- Use error returns for recoverable runtime conditions or normal variable input.
+- Prefer `void` for functions that do not have meaningful runtime errors to
+  report.
+- Keep device I/O transport adapters separate from protocol codecs.
 
----
+## License
 
-## Contributing
-
-```bash
-git checkout -b feature/your-feature
-./build.sh                                           # test on native_sim first
-./build.sh -b esp32s3_devkitm_esp32s3_procpu -r a   # then on hardware
-```
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) · Code style: Zephyr C · Commits: conventional format
-
----
-
-## Links
-
-| | |
-|--|--|
-| 📖 Docs | [docs.akiraos.dev](https://docs.akiraos.dev) |
-| 🖥️ Hardware | [akiraos.dev/akiraconsole](https://akiraos.dev/akiraconsole) |
-| 🏷️ OSHWA | [certification.oshwa.org/md000003.html](https://certification.oshwa.org/md000003.html) |
-| 💬 Discussions | [GitHub Discussions](https://github.com/ArturR0k3r/AkiraOS/discussions) |
-| 📢 Telegram | [@theguywithpen](https://t.me/theguywithpen) |
-| 🛒 CrowdSupply | Coming soon — [akiraos.dev/akiraconsole](https://akiraos.dev/akiraconsole) |
-
----
-
-## Acknowledgments
-
-[Zephyr Project](https://zephyrproject.org) · [Bytecode Alliance / WAMR](https://github.com/bytecodealliance/wasm-micro-runtime) · [Espressif Systems](https://espressif.com) · [Nordic Semiconductor](https://nordicsemi.com) · [MCUboot](https://mcuboot.com)
-
----
-
-<div align="center">
-
-**If AkiraOS is useful to you — a ⭐ helps others find it.**
-
-[Star on GitHub](https://github.com/ArturR0k3r/AkiraOS) · [Follow updates](https://t.me/theguywithpen) · [Docs](https://docs.akiraos.dev)
-
-*Apache 2.0 · Copyright © 2026 PenEngineering S.R.L · [Commercial licenses available](COMMERCIAL.md)*
-
-</div>
+AkiraCCSDS retains the upstream AkiraOS licensing and copyright notices. See
+[LICENSE](LICENSE) and the upstream project for the original project context.
