@@ -34,6 +34,7 @@ target_sources(app PRIVATE
     ${AKIRA_SRC}/runtime/security/sandbox.c
     ${AKIRA_SRC}/connectivity/ota/ota_manager.c
     ${AKIRA_SRC}/connectivity/ccsds/akira_cfdp_staging.c
+    ${AKIRA_SRC}/connectivity/ccsds/akira_cfdp_service.c
     ${AKIRA_SRC}/connectivity/ccsds/ccsds_bch.c
     ${AKIRA_SRC}/connectivity/ccsds/ccsds_cltu.c
     ${AKIRA_SRC}/connectivity/ccsds/ccsds_crc16.c
@@ -66,6 +67,7 @@ target_sources(app PRIVATE
     src/test_ccsds_cltu.c
     src/test_ccsds_crc16.c
     src/test_ccsds_cfdp_staging.c
+    src/test_akira_cfdp_service.c
     src/test_ccsds_cfdp_checksum.c
     src/test_ccsds_cfdp_entity.c
     src/test_ccsds_cfdp_filestore.c

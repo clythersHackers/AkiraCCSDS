@@ -747,6 +747,56 @@ config AKIRA_CCSDS_CFDP_MAX_NAK_ROUNDS
       Maximum sender-side NAK rounds accepted before failing a limited Class 2
       transaction.
 
+config AKIRA_CCSDS_CFDP_SERVICE_LOCAL_ENTITY_ID
+    int "Default Akira CFDP service local entity ID"
+    default 1
+    range 1 2147483647
+    depends on AKIRA_CCSDS_CFDP
+    help
+      Default local CFDP entity ID used by the generic Akira CFDP service.
+
+config AKIRA_CCSDS_CFDP_SERVICE_REMOTE_ENTITY_ID
+    int "Default Akira CFDP service remote entity ID"
+    default 2
+    range 1 2147483647
+    depends on AKIRA_CCSDS_CFDP
+    help
+      Default remote CFDP entity ID used by the generic Akira CFDP service.
+
+config AKIRA_CCSDS_CFDP_SERVICE_ENTITY_ID_LEN
+    int "Default Akira CFDP service entity ID length"
+    default 1
+    range 1 8
+    depends on AKIRA_CCSDS_CFDP
+    help
+      Default encoded entity ID length in octets for the generic service.
+
+config AKIRA_CCSDS_CFDP_SERVICE_TRANS_SEQ_LEN
+    int "Default Akira CFDP service transaction sequence length"
+    default 1
+    range 1 8
+    depends on AKIRA_CCSDS_CFDP
+    help
+      Default encoded transaction sequence number length in octets.
+
+config AKIRA_CCSDS_CFDP_SERVICE_INITIAL_TRANS_SEQ
+    int "Default Akira CFDP service initial transaction sequence"
+    default 1
+    range 1 2147483647
+    depends on AKIRA_CCSDS_CFDP
+    help
+      Default first transaction sequence number for locally initiated sends.
+
+config AKIRA_CCSDS_CFDP_SERVICE_APID
+    hex "Default Akira CFDP service Space Packet APID"
+    default 0x340
+    range 0x1 0x7ff
+    depends on AKIRA_CCSDS_CFDP
+    help
+      Default CCSDS Space Packet APID used for both inbound and outbound CFDP
+      packets. Runtime service configuration may still set separate local and
+      remote APIDs for asymmetric links.
+
 config AKIRA_CCSDS_MAX_CLTU_LEN
     int "Maximum CCSDS CLTU length"
     default 1024

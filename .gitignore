@@ -119,5 +119,4 @@ build_nrf53/
 #python env
 .venv/
 modules/wasm-micro-runtime
-src/connectivity/ccsds/CFDP_PLAN.md
 src/connectivity/ccsds/727x0b5e1.pdf
