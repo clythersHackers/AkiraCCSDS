@@ -683,6 +683,7 @@ endif()
 if(CONFIG_AKIRA_CCSDS)
     target_sources(app PRIVATE
         src/connectivity/ccsds/ccsds_crc16.c
+        src/connectivity/ccsds/ccsds_profile.c
         src/connectivity/ccsds/ccsds_router.c
         src/connectivity/ccsds/ccsds_space_packet.c
     )
@@ -707,7 +708,6 @@ if(CONFIG_AKIRA_CCSDS)
         target_sources(app PRIVATE
             src/connectivity/ccsds/ccsds_bch.c
             src/connectivity/ccsds/ccsds_cltu.c
-            src/connectivity/ccsds/ccsds_profile.c
             src/connectivity/ccsds/ccsds_tc_frame.c
             src/connectivity/ccsds/ccsds_tc_segment.c
             src/connectivity/ccsds/ccsds_time_service.c

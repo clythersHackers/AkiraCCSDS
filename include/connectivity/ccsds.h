@@ -10,13 +10,18 @@
 #include "ccsds/akira_cfdp_service.h"
 #include "ccsds/akira_cfdp_staging.h"
 #endif
+#ifdef CONFIG_AKIRA_CCSDS_FRAME_SUPPORT
 #include "ccsds/ccsds_bch.h"
 #include "ccsds/ccsds_cltu.h"
+#endif
 #include "ccsds/ccsds_profile.h"
-#include "ccsds/ccsds_router.h"
+#ifdef CONFIG_AKIRA_CCSDS_FRAME_SUPPORT
 #include "ccsds/ccsds_rnd.h"
 #include "ccsds/ccsds_rs.h"
+#endif
+#include "ccsds/ccsds_router.h"
 #include "ccsds/ccsds_space_packet.h"
+#ifdef CONFIG_AKIRA_CCSDS_FRAME_SUPPORT
 #include "ccsds/ccsds_tc_frame.h"
 #ifdef CONFIG_NETWORKING
 #include "ccsds/ccsds_tc_udp_input.h"
@@ -24,6 +29,7 @@
 #include "ccsds/ccsds_time_packet.h"
 #include "ccsds/ccsds_tm_frame.h"
 #include "ccsds/ccsds_tm_udp_route.h"
+#endif
 #include "ccsds/ccsds_types.h"
 
 #endif /* AKIRA_CONNECTIVITY_CCSDS_H */
